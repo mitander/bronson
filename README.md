@@ -32,6 +32,30 @@ Bronson uses the current repository's `origin` remote. Use `--repo` to choose on
 python -m bronson --repo owner/repository
 ```
 
+## Themes
+
+Choose a built-in theme with `bronson --theme textual-dark` or the `t` key.
+
+Bronson can load [Flume](https://github.com/mitander/flume.nvim)'s generated palettes directly. Link
+its `extras` directory into Bronson's configuration:
+
+```sh
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/bronson"
+ln -s /path/to/flume.nvim/extras "${XDG_CONFIG_HOME:-$HOME/.config}/bronson/flume"
+```
+
+Bronson then loads `tracker-tui/flume-*.json` and follows `current/schema`, including live
+`:FlumeSync` changes. If no configuration link exists, it also looks in
+`${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/flume.nvim/extras`. Missing or invalid palettes
+leave built-in themes available.
+
+Use `BRONSON_FLUME_DIR` to point to a different extras directory. The previous
+`FLUME_TRACKER_THEME_DIR` and `FLUME_SCHEMA_FILE` overrides remain supported. No external Python
+bridge or launcher wrapper is needed.
+
+An explicit `--theme flume-dusk` or selection with `t` pins that theme; choose **Follow Flume sync**
+in the theme picker to resume following the active palette.
+
 ## Keybindings
 
 ### Dashboard

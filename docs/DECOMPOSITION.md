@@ -159,9 +159,10 @@ The dashboard remains the single owner of polling cadence, worker scheduling, st
 selection, inline expansion, and mutation completion. Job and log screens consume application-owned
 services rather than starting independent provider caches or polling loops.
 
-Move CSS with the component it styles where practical. Keep theme loading and the optional Flume
-bridge in `ui/themes.py`, without making Flume a required dependency. Preserve no-bridge fallback
-and live repaint behavior.
+Move CSS with the component it styles where practical. Theme loading currently lives in
+`bronson/themes.py`; its eventual UI owner is `ui/themes.py`. It reads optional Flume palette files
+directly, without an external Python bridge or a required Flume installation. Preserve built-in
+fallback and live repaint behavior.
 
 Lower layers never import `ui`. Avoid circular imports by passing data and small callbacks to
 screens, not importing the concrete dashboard class for runtime access. Do not build an event

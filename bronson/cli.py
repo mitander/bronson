@@ -58,20 +58,12 @@ from bronson.logs import (
     render_log,
     style_log_line,
 )
-
-try:
-    from flume_tracker_theme import (
-        active_flume_theme,
-        load_flume_themes,
-        theme_roles,
-        watch_flume_theme_changes,
-    )
-except ImportError:  # Flume bridge is optional; fall back to built-in themes.
-    active_flume_theme = None
-    load_flume_themes = None
-    theme_roles = None
-    watch_flume_theme_changes = None
-
+from bronson.themes import (
+    active_flume_theme,
+    load_flume_themes,
+    theme_roles,
+    watch_flume_theme_changes,
+)
 
 # --------------------------------------------------------------------------
 # gh plumbing
