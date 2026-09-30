@@ -178,8 +178,8 @@ framework to solve an import cycle.
    the narrow provider contract. Replace UI-built CLI arguments. Keep public CLI behavior unchanged.
 4. **Split the UI.** Move job and log screens, shared presentation, and theme integration. Keep one
    dashboard owner for polling and selection.
-5. **Finish startup and test migration.** Add package entry points, use ordinary package imports
-   in tests, and update `ci-local.sh` discovery in the same change.
+5. **Finish startup and test migration.** Add package entry points, use ordinary package imports in
+   tests, and update `ci-local.sh` discovery in the same change.
 6. **Review the boundary before GitLab.** Verify that widgets contain no GitHub response keys or
    command construction, storage has no widget dependencies, and process execution has no Textual
    dependency.

@@ -8,11 +8,10 @@ implemented. This repository owns its code, technical design, and tests.
 1. Check Git status and preserve unrelated work. Do not commit or push unless asked.
 2. Read [README.md](README.md) for current behavior and
    [the decomposition design](docs/DECOMPOSITION.md) before structural changes.
-3. Inspect the direct implementation and tests. The application entrypoint is `bronson/cli.py`,
-   with module startup in `bronson/__main__.py`. Dashboard tests live in
-   `tests/test_dashboard.py`. Log presentation and storage live in `bronson/logs.py` and
-   `bronson/cache.py`, tested in `tests/`. The rest of the design document's package tree remains
-   a target.
+3. Inspect the direct implementation and tests. The application entrypoint is `bronson/cli.py`, with
+   module startup in `bronson/__main__.py`. Dashboard tests live in `tests/test_dashboard.py`. Log
+   presentation and storage live in `bronson/logs.py` and `bronson/cache.py`, tested in `tests/`.
+   The rest of the design document's package tree remains a target.
 4. Follow [CONTRIBUTING.md](CONTRIBUTING.md) for setup, formatting, lint, and validation.
 
 ## Engineering

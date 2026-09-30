@@ -12,8 +12,8 @@ preferred:
 ```sh
 python3 -m venv ~/.venvs/bronson
 . ~/.venvs/bronson/bin/activate
-python -m pip install textual ruff==0.16.6
-npm install --global prettier@3.6.2
+python -m pip install textual ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
+npm install --global prettier@3.9.6
 ```
 
 Node.js/npm are only needed to install the Markdown formatter. They are not runtime dependencies.
@@ -31,19 +31,22 @@ owner:
   and likely bugs, not an encyclopedia of style rules;
 - Ruff 0.16.6, without preview rules.
 
-Markdown uses Prettier 3.6.2, wrapped prose at 100 columns, and two-space indentation. Tables, URLs,
-and code blocks may exceed the prose width. `scripts/format.sh` owns these options and ignores
-external Prettier configuration for reproducibility.
+Markdown and structured data use Prettier 3.9.6 with the repository's `.prettierrc.json`: 100
+columns, wrapped prose, and two-space indentation. Shell scripts use shfmt 3.14.1 with two spaces;
+ShellCheck 0.11.0 checks them without automatic fixes. TOML uses Taplo 0.10.0; install its
+[prebuilt binary](https://github.com/tamasfe/taplo/releases) or a system package (for example,
+`brew install taplo`). No Rust compiler is needed.
 
 ```sh
-./scripts/format.sh             # format Markdown, then Python
+./scripts/format.sh             # format repository files
 ./scripts/format.sh check       # check only, no source rewrites
 ruff check --no-cache --config ruff.toml .
 ```
 
-The formatting script validates both tool versions before writing. Formatting does not fix lint
-findings. Inspect proposed fixes and apply only safe, understood changes. Never enable unsafe fixes
-just to make the gate pass. Suppressions must be narrow and explained.
+The formatting script validates tool versions before writing, then sorts imports before formatting
+Python. It does not apply other lint fixes. Inspect proposed fixes and apply only safe, understood
+changes. Never enable unsafe fixes just to make the gate pass. Suppressions must be narrow and
+explained.
 
 Prefer precise names and coherent modules over comments or abstractions that only shorten a file.
 Comments explain non-local invariants, compatibility, or why an obvious alternative is wrong.
