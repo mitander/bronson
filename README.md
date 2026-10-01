@@ -9,28 +9,33 @@ authentication and API access.
 
 - Python 3.10 or newer
 - [GitHub CLI](https://cli.github.com/) (`gh`)
-- [Textual](https://textual.textualize.io/)
-
-Sign in to GitHub and install Textual:
-
-```sh
-gh auth login
-python -m pip install textual
-```
+- [pipx](https://pipx.pypa.io/) for an isolated command-line installation
 
 ## Install and run
 
+Clone Bronson and install it with its Python dependencies:
+
 ```sh
 gh repo clone mitander/bronson
-cd bronson
-python -m bronson
+pipx install ./bronson
+gh auth login
+bronson
 ```
 
-Bronson uses the current repository's `origin` remote. Use `--repo` to choose one explicitly:
+Ensure pipx's application directory is on your `PATH` (`pipx ensurepath` can set this up). Bronson
+runs from any directory and uses the current repository's `origin` remote. Use `--repo` to choose
+one explicitly:
 
 ```sh
-python -m bronson --repo owner/repository
+bronson --repo owner/repository
 ```
+
+For a live development checkout, use `pipx install -e ./bronson` instead. Python edits then take
+effect on the next launch; reinstall after changing dependencies or package metadata. Uninstall with
+`pipx uninstall bronson`. Nothing needs to be added to `PYTHONPATH`.
+
+You can also install with `python -m pip install .` inside a virtual environment. Module startup
+(`python -m bronson`) remains supported.
 
 ## Themes
 

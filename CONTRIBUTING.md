@@ -12,12 +12,27 @@ preferred:
 ```sh
 python3 -m venv ~/.venvs/bronson
 . ~/.venvs/bronson/bin/activate
-python -m pip install textual ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
+python -m pip install -e . ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
 npm install --global prettier@3.9.6
 ```
 
 Node.js/npm are only needed to install the Markdown formatter. They are not runtime dependencies.
-GitHub CLI authentication is needed for live use, not the deterministic tests.
+GitHub CLI authentication is needed for live use, not the deterministic tests. Run `bronson` from
+any repository after activating this environment, or use the editable pipx installation documented
+in [README.md](README.md).
+
+To check the distributable separately from the editable checkout:
+
+```sh
+python -m pip wheel --no-deps --wheel-dir /tmp/bronson-wheels .
+python -m venv /tmp/bronson-install
+/tmp/bronson-install/bin/python -m pip install /tmp/bronson-wheels/bronson-*.whl
+(cd /tmp && /tmp/bronson-install/bin/bronson --help)
+```
+
+Use fresh temporary directories for repeat runs. The installed command must work outside the
+checkout without `PYTHONPATH`; package dependencies are declared in
+[pyproject.toml](pyproject.toml).
 
 ## Style and formatting
 

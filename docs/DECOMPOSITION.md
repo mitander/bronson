@@ -72,12 +72,13 @@ owners move, not as empty placeholders.
 ### CLI and repository identity
 
 `cli.py` constructs the provider, cache, and dashboard. Preserve `--repo`, `--theme`, origin
-detection, and existing exit behavior. The compatibility launcher must work from outside the
-checkout as it does now. It may add the checkout root to the import path before importing
-`bronson.cli`; production modules must not modify import paths.
+detection, and existing exit behavior. `scripts/bronson.py` is retired; use the installed `bronson`
+command or `python -m bronson`. Both preserve the caller's working directory for origin detection.
+Production modules must not modify import paths. Terminal launchers own failed-window retention, not
+Bronson.
 
-Support `python -m bronson` from the checkout after extraction. Packaging and an installed `bronson`
-command are separate work, not prerequisites for this refactor.
+[Package metadata](../pyproject.toml) owns dependencies and the installed console entry point.
+Editable installations support a live checkout without external wrappers or `PYTHONPATH` wiring.
 
 An immutable repository reference carries provider, hostname, and full project path. Do not
 introduce an ambient mutable current repository. In the first milestone this reference represents
