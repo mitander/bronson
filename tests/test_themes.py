@@ -113,6 +113,18 @@ class ThemeTests(ThemeFixture, unittest.TestCase):
         self.assertEqual(themes.theme_roles("flume-opal")["error"], "#bc3945")
         self.assertEqual(themes.active_flume_theme(), "flume-dusk")
 
+    def test_separate_generated_palettes_follow_shared_schema(self):
+        generated = self.root / "generated"
+        self.palettes.rename(generated)
+        configured = self.root / "config" / "bronson" / "flume-themes"
+        configured.symlink_to(generated, target_is_directory=True)
+        self.assertEqual(len(themes.load_flume_themes()), 2)
+        self.assertEqual(themes.active_flume_theme(), "flume-dusk")
+        self.activate("opal")
+        self.assertEqual(themes.active_flume_theme(), "flume-opal")
+        os.environ["FLUME_TRACKER_THEME_DIR"] = str(self.root / "missing")
+        self.assertEqual(themes.load_flume_themes(), [])
+
     def test_missing_or_invalid_palettes_fall_back_safely(self):
         (self.palettes / "flume-bad.json").write_text("[]")
         invalid = palette("flume-invalid", "not-a-color", "#ee7583")
@@ -164,6 +176,13 @@ class LiveThemeTests(ThemeFixture, unittest.IsolatedAsyncioTestCase):
             pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
             await changes.aclose()
+
+    async def test_follows_atomic_swap_with_separate_generated_palettes(self):
+        generated = self.root / "generated"
+        self.palettes.rename(generated)
+        configured = self.root / "config" / "bronson" / "flume-themes"
+        configured.symlink_to(generated, target_is_directory=True)
+        await self.test_follows_atomic_current_swap()
 
     async def test_follows_standalone_schema_override(self):
         themes.load_flume_themes()

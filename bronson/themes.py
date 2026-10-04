@@ -39,7 +39,11 @@ def _extras_dir() -> Path:
 
 def _theme_dir() -> Path:
     value = os.environ.get("FLUME_TRACKER_THEME_DIR")
-    return Path(value).expanduser() if value else _extras_dir() / "tracker-tui"
+    if value:
+        return Path(value).expanduser()
+    config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    generated = config / "bronson" / "flume-themes"
+    return generated if generated.exists() else _extras_dir() / "tracker-tui"
 
 
 def _schema_file() -> Path:
