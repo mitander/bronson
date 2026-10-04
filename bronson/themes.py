@@ -54,6 +54,7 @@ def _read_theme(path: Path) -> Theme:
         raise ValueError("not a Flume theme")
     if not isinstance(data["dark"], bool):
         raise ValueError("dark must be a boolean")
+
     colors = {key: data[key] for key in _THEME_COLORS}
     roles = data["roles"]
     source = data["variables"]
@@ -102,6 +103,7 @@ def _read_theme(path: Path) -> Theme:
         ("accent", "accent", "accent_secondary", "text", "text_subtle", "text_muted"), 1
     ):
         variables[f"markdown-h{level}-color"] = roles[role]
+
     # Reject invalid palette colors before Textual applies them to the running UI.
     for value in (*colors.values(), *roles.values()):
         if not isinstance(value, str):
@@ -117,6 +119,7 @@ def _read_theme(path: Path) -> Theme:
                 raise ValueError("invalid color opacity")
             value = parts[0]
         Color.parse(value)
+
     theme = Theme(
         name=name,
         **colors,

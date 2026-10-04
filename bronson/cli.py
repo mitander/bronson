@@ -118,15 +118,18 @@ def repo_from_git(cwd: str) -> str | None:
 
 
 def run_process(
-    args: list[str], *, timeout: int = 30, check: bool = False
-) -> subprocess.CompletedProcess:
+    args: list[str], *, timeout: float = 30, check: bool = False
+) -> subprocess.CompletedProcess[str]:
     """Stop local CLI requests when their Textual worker is cancelled."""
     try:
         worker = get_current_worker()
     except NoActiveWorker:
         worker = None
     deadline = time.monotonic() + timeout
-    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as proc:
+
+    with subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    ) as process:
         try:
             while True:
                 if worker and worker.is_cancelled:
@@ -135,15 +138,16 @@ def run_process(
                 if remaining <= 0:
                     raise subprocess.TimeoutExpired(args, timeout)
                 try:
-                    stdout, stderr = proc.communicate(timeout=min(0.05, remaining))
+                    stdout, stderr = process.communicate(timeout=min(0.05, remaining))
                     break
                 except subprocess.TimeoutExpired:
                     continue
         finally:
-            if proc.poll() is None:
-                proc.kill()
-                proc.communicate()
-        result = subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+
+        result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
         if check:
             result.check_returncode()
         return result
@@ -167,8 +171,8 @@ def open_in_browser(url: str) -> None:
 
 
 def gh_json(args: list[str], timeout: int = 30) -> dict | list:
-    out = run_process(["gh", *args], check=True, timeout=timeout).stdout
-    return json.loads(out)
+    output = run_process(["gh", *args], check=True, timeout=timeout).stdout
+    return json.loads(output)
 
 
 def run_revision(run: dict) -> tuple:
@@ -493,6 +497,7 @@ class LogScreen(ModalScreen):
             needle = self.query_text.lower()
             self.matches = [i for i, line in enumerate(text) if needle in line.plain.lower()]
             self.match_i = min(self.match_i, max(0, len(self.matches) - 1))
+
         self.highlight_matches()
         self.update_log_header()
 
@@ -530,14 +535,13 @@ class LogScreen(ModalScreen):
         anchor = self._failure_row if y == self._failure_scroll_y else y
         if anchor is None:
             anchor = y
-        candidates = [
-            row for row in self.failure_rows if (row > anchor if direction > 0 else row < anchor)
-        ]
-        target = (
-            (candidates[0] if candidates else self.failure_rows[0])
-            if direction > 0
-            else (candidates[-1] if candidates else self.failure_rows[-1])
-        )
+        if direction > 0:
+            candidates = [row for row in self.failure_rows if row > anchor]
+            target = candidates[0] if candidates else self.failure_rows[0]
+        else:
+            candidates = [row for row in self.failure_rows if row < anchor]
+            target = candidates[-1] if candidates else self.failure_rows[-1]
+
         scroll.scroll_to(y=target, animate=False)
         self._failure_row = target
         self._failure_scroll_y = min(target, scroll.max_scroll_y)
@@ -852,10 +856,10 @@ class JobPane(Vertical):
             yield Static("Select a job to inspect its output.", id="preview-body", markup=False)
 
     def show_run(self, run: dict | None) -> None:
-        old = (self.run or {}).get("databaseId"), (self.run or {}).get("attempt")
-        new = (run or {}).get("databaseId"), (run or {}).get("attempt")
+        previous_identity = (self.run or {}).get("databaseId"), (self.run or {}).get("attempt")
+        selected_identity = (run or {}).get("databaseId"), (run or {}).get("attempt")
         self.run = run
-        if old != new:
+        if previous_identity != selected_identity:
             self.jobs = []
             self._preview_key = None
             self.set_preview("Select a job to inspect its output.")
@@ -892,15 +896,15 @@ class JobPane(Vertical):
         if not job:
             self._preview_key = None
             error = self.app.detail_errors.get(run["databaseId"])
-            self.set_preview(
-                "Couldn't fetch jobs. Retrying…"
-                if error
-                else "Fetching jobs…"
-                if data is None
-                else "No jobs yet."
-                if not self.jobs
-                else "Enter expands this run. Select a job to preview its log."
-            )
+            if error:
+                message = "Couldn't fetch jobs. Retrying…"
+            elif data is None:
+                message = "Fetching jobs…"
+            elif not self.jobs:
+                message = "No jobs yet."
+            else:
+                message = "Enter expands this run. Select a job to preview its log."
+            self.set_preview(message)
             return
         self.query_one("#detail-title", Static).update(job.get("name") or "Job")
         role, fallback, glyph = status_glyph(job.get("conclusion") or job.get("status") or "?")
@@ -1223,6 +1227,7 @@ class ActionsDashboard(App):
         self.theme_override = theme_name or os.environ.get("BRONSON_THEME")
         if self.theme_override == "auto":
             self.theme_override = None
+
         self.run_filter = ""
         self.runs: list[dict] = []
         self.row_map: list[dict | None] = []  # job rows also map to their parent run
@@ -1234,6 +1239,7 @@ class ActionsDashboard(App):
         self._detail_revisions: dict[int, tuple] = {}
         self._detail_fetched: dict[int, float] = {}
         self._detail_inflight: set[int] = set()
+
         self._polling = False
         self._last_poll = 0.0
         self.gates: dict[int, tuple] = {}  # run id -> (passed, total, failed, pending)
@@ -1319,13 +1325,12 @@ class ActionsDashboard(App):
     def update_footer(self) -> None:
         if not self.is_running:
             return
-        text = (
-            "enter expand log   tab switch pane   esc runs   ? help"
-            if self.detail_focused()
-            else "/ search   enter jobs/log   tab preview   [ ] resize   ? help"
-            if self.wide
-            else "/ search   enter jobs   ? help"
-        )
+        if self.detail_focused():
+            text = "enter expand log   tab switch pane   esc runs   ? help"
+        elif self.wide:
+            text = "/ search   enter jobs/log   tab preview   [ ] resize   ? help"
+        else:
+            text = "/ search   enter jobs   ? help"
         self.query_one("#dashboard-footer", Static).update(text)
         self.query_one("#preview-title").set_class(
             self.focused is self.query_one("#preview-scroll"), "-focused"
@@ -1386,15 +1391,14 @@ class ActionsDashboard(App):
         self._table().display = not empty
         self.query_one("#run-caption").display = not empty
         if empty:
-            message = (
-                f"No matching runs in the latest {len(self.runs)} fetched.\nEsc clears the filter."
-                if self.run_filter and self.runs
-                else "Preparing your allegedly working pipelines…"
-                if self._polling
-                else f"Couldn't fetch runs.\n{self.error}\n\nctrl+r to retry"
-                if self.error
-                else "No workflow runs yet."
-            )
+            if self.run_filter and self.runs:
+                message = f"No matching runs in the latest {len(self.runs)} fetched.\nEsc clears the filter."
+            elif self._polling:
+                message = "Preparing your allegedly working pipelines…"
+            elif self.error:
+                message = f"Couldn't fetch runs.\n{self.error}\n\nctrl+r to retry"
+            else:
+                message = "No workflow runs yet."
             self.query_one("#run-state-message", Static).update(message)
         self.query_one("#runs-pane").border_title = "Runs"
         self.query_one(JobPane).border_title = "Job log"
@@ -1534,11 +1538,13 @@ class ActionsDashboard(App):
         if chosen not in self.available_themes:
             flume = [name for name in self.available_themes if name.startswith("flume-")]
             chosen = flume[0] if flume else self.theme
+
         self.theme = chosen
         self._roles = theme_roles(self.theme) or {} if theme_roles else {}
         self.restore_snapshot()
         self.watch_flume_theme()
         self.query_one("#run-search", Input).display = False
+
         self.set_interval(TICK_SECONDS, self.refresh_rows)
         self.set_interval(ACTIVE_POLL_SECONDS, self.poll_if_due)
         self.resize_layout()
@@ -1619,8 +1625,8 @@ class ActionsDashboard(App):
         """Active runs first (running before queued), then newest completed."""
 
         def stamp(run: dict) -> float:
-            t = parse_time(run.get("startedAt") or run.get("createdAt"))
-            return t.timestamp() if t else 0
+            started_at = parse_time(run.get("startedAt") or run.get("createdAt"))
+            return started_at.timestamp() if started_at else 0
 
         matches = [r for r in self.runs if run_matches(r, self.run_filter)]
         active = sorted(
@@ -1666,30 +1672,19 @@ class ActionsDashboard(App):
                     for job in jobs:
                         self.job_rows[len(self.row_map)] = job
                         self.row_map.append(run)
-                        glyph, name, duration = job_cells(job, now, self.color)
-                        text = Text("  ")
-                        text.append_text(glyph)
-                        text.append(" ")
                         width = next(c.width for k, c in table.columns.items() if k.value == "name")
-                        name = name.copy()
-                        name.truncate(
-                            max(1, width - 5 - duration.cell_len), overflow="ellipsis", pad=True
-                        )
-                        text.append_text(name)
-                        text.append(" ")
-                        text.append_text(duration)
+                        text = self.inline_job_text(job, now, width)
                         rows.append(
                             (f"job:{run['databaseId']}:{job['databaseId']}", [Text(""), text])
                         )
                     if not jobs:
                         self.row_map.append(None)
-                        message = (
-                            "Couldn't fetch jobs. Retrying…"
-                            if self.expanded_run in self.detail_errors
-                            else "Fetching jobs…"
-                            if data is None
-                            else "No jobs yet"
-                        )
+                        if self.expanded_run in self.detail_errors:
+                            message = "Couldn't fetch jobs. Retrying…"
+                        elif data is None:
+                            message = "Fetching jobs…"
+                        else:
+                            message = "No jobs yet"
                         rows.append(
                             (
                                 f"jobs:{self.expanded_run}",
@@ -1755,6 +1750,19 @@ class ActionsDashboard(App):
         name.append_text(self.gates_cell(run))
         name.append(f" · {length or '—'}", style="not bold " + self.color("text_subtle", "dim"))
         return [Text(glyph, style=self.color(role, fallback)), name]
+
+    def inline_job_text(self, job: dict, now: datetime, width: int) -> Text:
+        glyph, name, duration = job_cells(job, now, self.color)
+        name = name.copy()
+        name.truncate(max(1, width - 5 - duration.cell_len), overflow="ellipsis", pad=True)
+
+        text = Text("  ")
+        text.append_text(glyph)
+        text.append(" ")
+        text.append_text(name)
+        text.append(" ")
+        text.append_text(duration)
+        return text
 
     # -- gates ---------------------------------------------------------------
 

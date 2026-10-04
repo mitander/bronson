@@ -54,12 +54,13 @@ class Cache:
         try:
             self.root.mkdir(parents=True, exist_ok=True)
             self._path(repo, key).write_text(raw)
-            files = sorted(self.root.glob("*.log"), key=lambda p: p.stat().st_mtime)
-            total = sum(p.stat().st_size for p in files)
+
+            files = sorted(self.root.glob("*.log"), key=lambda path: path.stat().st_mtime)
+            retained_bytes = sum(path.stat().st_size for path in files)
             for path in files:
-                if total <= CACHE_LIMIT:
+                if retained_bytes <= CACHE_LIMIT:
                     break
-                total -= path.stat().st_size
+                retained_bytes -= path.stat().st_size
                 path.unlink()
         except OSError:
             pass
@@ -86,6 +87,7 @@ class Cache:
                 or not isinstance(details, dict)
             ):
                 return None
+
             for run in runs:
                 if not isinstance(run, dict) or type(run.get("databaseId")) is not int:
                     return None
@@ -96,6 +98,7 @@ class Cache:
                     for key in RUN_TEXT_FIELDS
                 ):
                     return None
+
             restored = []
             for run in runs:
                 entry = details.get(str(run["databaseId"]))
@@ -134,6 +137,7 @@ class Cache:
                 for run, jobs in snapshot.details
             },
         }
+
         temporary = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)

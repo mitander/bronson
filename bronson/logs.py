@@ -89,9 +89,11 @@ def render_log(raw: str, fallback_label: str, prefix_columns: int, label_index: 
     """
     if not raw.strip():
         return [Text("(no log output yet)", style="dim")]
+
+    raw_lines = raw.splitlines()
     lines: list[Text] = []
     current_label: str | None = None
-    for raw_line in raw.splitlines()[:LOG_MAX_LINES]:
+    for raw_line in raw_lines[:LOG_MAX_LINES]:
         parts = raw_line.split("\t", prefix_columns) if prefix_columns else [raw_line]
         if not prefix_columns or len(parts) < prefix_columns + 1:
             label, content = current_label or fallback_label, raw_line
@@ -104,6 +106,7 @@ def render_log(raw: str, fallback_label: str, prefix_columns: int, label_index: 
             current_label = label
             lines.append(Text(f"── {label} ", style="bold dim"))
         lines.append(style_log_line(Text(), content.lstrip("\ufeff")))
-    if len(raw.splitlines()) > LOG_MAX_LINES:
+
+    if len(raw_lines) > LOG_MAX_LINES:
         lines.append(Text(f"… truncated after {LOG_MAX_LINES} lines", style="dim italic"))
     return lines
