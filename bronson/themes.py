@@ -1,4 +1,4 @@
-"""Load Flume's generated palettes and follow its atomic active-theme switch."""
+"""Read Flume palette exports and follow its atomic active-theme switch."""
 
 from __future__ import annotations
 
@@ -42,6 +42,9 @@ def _theme_dir() -> Path:
     if value:
         return Path(value).expanduser()
     config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    palette = _extras_dir() / "palette"
+    if palette.is_dir():
+        return palette
     generated = config / "bronson" / "flume-themes"
     return generated if generated.exists() else _extras_dir() / "tracker-tui"
 
@@ -51,8 +54,61 @@ def _schema_file() -> Path:
     return Path(value).expanduser() if value else _extras_dir() / "current" / "schema"
 
 
+def _palette_theme(data: dict) -> dict:
+    """Map Flume's versioned semantic export without a generated Textual bridge."""
+    if type(data["format_version"]) is not int or data["format_version"] != 1:
+        raise ValueError("unsupported Flume palette version")
+    if data["appearance"] not in ("dark", "light") or not isinstance(data["schema"], str):
+        raise ValueError("invalid Flume palette metadata")
+    colors = data["colors"]
+    fields = {
+        "primary": "accent",
+        "secondary": "syntax_keyword",
+        "accent": "cyan",
+        "background": "bg",
+        "surface": "surface_alt",
+        "panel": "surface",
+        "foreground": "text",
+        "success": "success",
+        "warning": "warning",
+        "error": "error",
+    }
+    roles = {
+        "text": "text",
+        "text_subtle": "fg",
+        "text_muted": "syntax_comment",
+        "border_subtle": "border_variant",
+        "accent": "accent",
+        "accent_secondary": "syntax_keyword",
+        "accent_tertiary": "cyan",
+        "success": "success",
+        "warning": "warning",
+        "error": "error",
+    }
+    variables = {
+        "border": "border",
+        "border_focus": "border_focused",
+        "cursor": "element_active",
+        "scrollbar": "border_variant",
+        "scrollbar_hover": "border",
+        "scrollbar_active": "border_focused",
+        "scrollbar_background": "bg",
+        "selection_background": "accent",
+        "selection_foreground": "on_accent",
+    }
+    return {
+        "name": "flume-" + data["schema"],
+        "dark": data["appearance"] == "dark",
+        **{field: colors[role] for field, role in fields.items()},
+        "roles": {name: colors[role] for name, role in roles.items()},
+        "variables": {name: colors[role] for name, role in variables.items()},
+    }
+
+
 def _read_theme(path: Path) -> Theme:
     data = json.loads(path.read_text())
+    if isinstance(data, dict) and "format_version" in data:
+        data = _palette_theme(data)
     name = data["name"]
     if not isinstance(name, str) or not name.startswith("flume-"):
         raise ValueError("not a Flume theme")
@@ -142,7 +198,7 @@ def load_flume_themes(_app: str = "actions") -> list[Theme]:
     for path in sorted(_theme_dir().glob("flume-*.json")):
         try:
             themes.append(_read_theme(path))
-        except (OSError, KeyError, TypeError, ValueError, ColorParseError):
+        except (OSError, KeyError, TypeError, ValueError, ColorParseError, RecursionError):
             continue
     return themes
 

@@ -41,21 +41,22 @@ You can also install with `python -m pip install .` inside a virtual environment
 
 Choose a built-in theme with `bronson --theme textual-dark` or the `t` key.
 
-Bronson can load generated Textual palettes based on
-[Flume](https://github.com/mitander/flume.nvim). Link your generated `flume-*.json` directory and
-Flume's `extras` directory separately:
+Bronson reads [Flume](https://github.com/mitander/flume.nvim)'s semantic palette exports directly.
+Link Flume's `extras` directory:
 
 ```sh
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/bronson"
-ln -s /path/to/generated-themes "${XDG_CONFIG_HOME:-$HOME/.config}/bronson/flume-themes"
 ln -s /path/to/flume.nvim/extras "${XDG_CONFIG_HOME:-$HOME/.config}/bronson/flume"
 ```
 
-Bronson loads `flume-themes/flume-*.json` and follows `flume/current/schema`, including live
-`:FlumeSync` changes. If no configuration link exists, it also looks in
-`${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/flume.nvim/extras`. Without `flume-themes`, it
-supports the legacy `tracker-tui` directory under extras. Flume no longer generates that directory;
-a separate adapter must supply the Textual palettes. Missing or invalid palettes leave built-in
+Bronson loads `flume/palette/flume-*.json` and follows `flume/current/schema`, including live
+`:FlumeSync` changes. After editing palette colors, use Flume's normal compile/sync command and
+restart Bronson. No separate Textual export or application rebuild is needed.
+
+If no configuration link exists, Bronson also looks in
+`${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/flume.nvim/extras`. Older generated Textual palettes
+remain supported through `flume-themes` in the Bronson configuration directory or `tracker-tui`
+under extras when canonical palette exports are absent. Missing or invalid palettes leave built-in
 themes available.
 
 Use `BRONSON_FLUME_DIR` to point to a different extras directory. The previous

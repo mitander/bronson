@@ -125,6 +125,71 @@ class ThemeTests(ThemeFixture, unittest.TestCase):
         os.environ["FLUME_TRACKER_THEME_DIR"] = str(self.root / "missing")
         self.assertEqual(themes.load_flume_themes(), [])
 
+    def test_reads_live_semantic_exports_before_legacy_generated_palettes(self):
+        directory = self.extras / "palette"
+        directory.mkdir()
+        data = {
+            "format_version": 1,
+            "schema": "dusk",
+            "appearance": "dark",
+            "colors": {
+                **dict.fromkeys(
+                    (
+                        "text",
+                        "fg",
+                        "syntax_comment",
+                        "border",
+                        "border_variant",
+                        "accent",
+                        "syntax_keyword",
+                        "cyan",
+                        "success",
+                        "warning",
+                        "error",
+                        "bg",
+                        "surface_alt",
+                        "surface",
+                        "border_focused",
+                        "element_active",
+                        "on_accent",
+                    ),
+                    "#222222",
+                ),
+                "bg": "#232136",
+                "text": "#eeeeee",
+                "error": "#ee7583",
+            },
+        }
+        path = directory / "flume-dusk.json"
+        path.write_text(json.dumps(data))
+        loaded = themes.load_flume_themes()
+        self.assertEqual([theme.name for theme in loaded], ["flume-dusk"])
+        self.assertEqual(loaded[0].background, "#232136")
+        self.assertEqual(loaded[0].variables["text"], "#eeeeee")
+        self.assertEqual(themes.theme_roles("flume-dusk")["error"], "#ee7583")
+        self.assertEqual(themes.active_flume_theme(), "flume-dusk")
+
+        data["colors"]["bg"] = "#ded4d1"
+        data["appearance"] = "light"
+        path.write_text(json.dumps(data))
+        changed = themes.load_flume_themes()[0]
+        self.assertEqual(changed.background, "#ded4d1")
+        self.assertFalse(changed.dark)
+        for key, value in (("format_version", 2), ("format_version", True), ("colors", [])):
+            path.write_text(json.dumps({**data, key: value}))
+            self.assertEqual(themes.load_flume_themes(), [])
+        data["colors"]["bg"] = "invalid-color"
+        path.write_text(json.dumps(data))
+        self.assertEqual(themes.load_flume_themes(), [])
+        self.assertIsNone(themes.active_flume_theme())
+
+    def test_deeply_nested_json_is_ignored(self):
+        path = self.palettes / "flume-dusk.json"
+        path.write_text("[" * 2000 + "0" + "]" * 2000)
+        loaded = themes.load_flume_themes()
+        self.assertEqual([theme.name for theme in loaded], ["flume-opal"])
+        self.assertIsNone(themes.theme_roles("flume-dusk"))
+
     def test_missing_or_invalid_palettes_fall_back_safely(self):
         (self.palettes / "flume-bad.json").write_text("[]")
         invalid = palette("flume-invalid", "not-a-color", "#ee7583")
