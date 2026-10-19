@@ -3,11 +3,8 @@
 import subprocess
 import sys
 import tempfile
-import threading
-import time
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from rich.text import Text
@@ -15,6 +12,8 @@ from textual.theme import Theme
 from textual.widgets import DataTable, Input, Static
 
 import bronson.cli as tui
+import bronson.providers.github as github
+from bronson.providers.github import GitHubProvider
 
 
 def run(run_id=1, status="in_progress", attempt=1):
@@ -60,40 +59,6 @@ class HelpersTest(unittest.TestCase):
         self.assertIn("--repo", result.stdout)
         self.assertIn("--theme", result.stdout)
 
-    def test_cancelled_request_kills_and_reaps_process_promptly(self):
-        worker = SimpleNamespace(is_cancelled=False)
-        launched = []
-        popen = subprocess.Popen
-
-        def launch(*args, **kwargs):
-            proc = popen(*args, **kwargs)
-            launched.append(proc)
-            return proc
-
-        timer = threading.Timer(0.1, lambda: setattr(worker, "is_cancelled", True))
-        with (
-            patch.object(tui, "get_current_worker", return_value=worker),
-            patch.object(tui.subprocess, "Popen", side_effect=launch),
-        ):
-            timer.start()
-            started = time.monotonic()
-            try:
-                with self.assertRaisesRegex(subprocess.SubprocessError, "cancelled"):
-                    tui.run_process([sys.executable, "-c", "import time; time.sleep(10)"])
-            finally:
-                timer.cancel()
-                timer.join()
-        self.assertLess(time.monotonic() - started, 0.5)
-        self.assertIsNotNone(launched[0].poll())
-
-    def test_process_output_errors_and_timeout(self):
-        proc = tui.run_process([sys.executable, "-c", "print('ready')"], check=True)
-        self.assertEqual(proc.stdout, "ready\n")
-        with self.assertRaises(subprocess.CalledProcessError):
-            tui.run_process([sys.executable, "-c", "raise SystemExit(2)"], check=True)
-        with self.assertRaises(subprocess.TimeoutExpired):
-            tui.run_process([sys.executable, "-c", "import time; time.sleep(10)"], timeout=0.1)
-
     def test_rail_projects_every_error_even_between_sampled_lines(self):
         self.assertEqual(tui.rail_markers({1, 123, 124, 998, 999}, 1000, 10), {0, 1, 9})
         self.assertEqual(tui.rail_markers({0, 2}, 3, 20), {0, 13})
@@ -123,23 +88,6 @@ class HelpersTest(unittest.TestCase):
                 self.assertTrue(tui.run_matches(item, query))
         self.assertFalse(tui.run_matches(item, "installer windows"))
 
-    def test_jobs_paginate_and_normalize(self):
-        with patch.object(
-            tui, "gh_json", return_value=[{"jobs": [job(10)]}, {"jobs": [job(11)]}]
-        ) as fetch:
-            jobs = tui.fetch_jobs("owner/repo", 1)
-        self.assertEqual([j["databaseId"] for j in jobs], [10, 11])
-        self.assertEqual(jobs[0]["startedAt"], jobs[0]["started_at"])
-        self.assertEqual(
-            fetch.call_args.args[0],
-            [
-                "api",
-                "repos/owner/repo/actions/runs/1/jobs?filter=latest&per_page=100",
-                "--paginate",
-                "--slurp",
-            ],
-        )
-
 
 class DashboardTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -154,7 +102,7 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             patch.object(tui, "active_flume_theme", None),
             patch.object(tui, "watch_flume_theme_changes", None),
             patch.object(tui, "theme_roles", None),
-            patch.object(tui, "gh_json", side_effect=self.fetch),
+            patch.object(GitHubProvider, "_json", side_effect=self.fetch),
         ]
         for p in self.patches:
             p.start()
@@ -270,6 +218,27 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.details[1]["jobs"][0]["databaseId"], 20)
             self.assertNotIn(1, app._detail_revisions)
 
+    async def test_mutations_refresh_without_replaying_uncertain_outcomes(self):
+        app = tui.ActionsDashboard("owner/repo", self.cache)
+        async with app.run_test() as pilot:
+            await self.settle(app, pilot)
+            for error in (None, subprocess.TimeoutExpired(["gh"], 30)):
+                with (
+                    self.subTest(error=error),
+                    patch.object(app.provider, "mutate", side_effect=error) as mutate,
+                    patch.object(app, "invalidate_detail") as invalidate,
+                    patch.object(app, "poll") as poll,
+                    patch.object(app, "notify"),
+                ):
+                    app.mutate_run(1, "rerun_failed", "rerunning failed jobs…")
+                    await self.settle(app, pilot)
+                    mutate.assert_called_once_with(1, "rerun_failed")
+                    poll.assert_called_once()
+                    if error is None:
+                        invalidate.assert_called_once_with(1)
+                    else:
+                        invalidate.assert_not_called()
+
     async def test_active_poll_interval_and_overlap_guard(self):
         app = tui.ActionsDashboard("owner/repo", self.cache)
         async with app.run_test() as pilot:
@@ -294,14 +263,14 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
         async with app.run_test() as pilot:
             await self.settle(app, pilot)
             proc = subprocess.CompletedProcess([], 0, stdout="hello\nworld\n", stderr="")
-            with patch.object(tui, "run_process", return_value=proc) as fetch:
+            with patch.object(github, "run_process", return_value=proc) as fetch:
                 screen = tui.LogScreen("CI", self.runs[0])
                 await app.push_screen(screen)
                 await self.settle(app, pilot)
                 fetch.assert_called_once()
                 self.assertIn("repos/owner/repo/actions/jobs/10/logs", fetch.call_args.args[0])
                 self.assertIn("hello", "\n".join(line.plain for line in screen.lines))
-                self.assertIn("still running", "\n".join(line.plain for line in screen.lines))
+                self.assertIn("Job is in_progress", "\n".join(line.plain for line in screen.lines))
                 screen.run_search("hello")
                 self.jobs = [job(10, "completed", "success"), job(11, "completed", "success")]
                 app.apply_gates(1, tui.run_revision(self.runs[0]), self.jobs, None)
@@ -333,7 +302,7 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
         app = tui.ActionsDashboard("owner/repo", self.cache)
         async with app.run_test() as pilot:
             await self.settle(app, pilot)
-            with patch.object(tui, "run_process") as fetch:
+            with patch.object(github, "run_process") as fetch:
                 screen = tui.LogScreen("CI", self.runs[0])
                 await app.push_screen(screen)
                 await self.settle(app, pilot)
@@ -349,7 +318,7 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
         async with app.run_test() as pilot:
             await self.settle(app, pilot)
             proc = subprocess.CompletedProcess([], 0, stdout="##[error]failed", stderr="")
-            with patch.object(tui, "run_process", return_value=proc) as fetch:
+            with patch.object(github, "run_process", return_value=proc) as fetch:
                 await app.push_screen(tui.LogScreen("CI", self.runs[0], failed_only=True))
                 await self.settle(app, pilot)
                 fetch.assert_called_once()
@@ -634,7 +603,7 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
         self.jobs = [job(10, "completed", "success")]
         app = tui.ActionsDashboard("owner/repo", self.cache)
         proc = subprocess.CompletedProcess([], 0, stdout="hello", stderr="")
-        with patch.object(tui, "run_process", return_value=proc) as download:
+        with patch.object(github, "run_process", return_value=proc) as download:
             async with app.run_test(size=(150, 40)) as pilot:
                 await self.settle(app, pilot)
                 self.assertEqual(download.call_count, 0)
@@ -762,7 +731,7 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             await self.settle(app, pilot)
             error = subprocess.CompletedProcess([], 1, stdout="", stderr="not published")
             success = subprocess.CompletedProcess([], 0, stdout="ready", stderr="")
-            with patch.object(tui, "run_process", side_effect=[error, success]) as fetch:
+            with patch.object(github, "run_process", side_effect=[error, success]) as fetch:
                 screen = tui.LogScreen("CI", self.runs[0])
                 await app.push_screen(screen)
                 await self.settle(app, pilot)

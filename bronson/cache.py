@@ -6,6 +6,7 @@ import os
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 CACHE_LIMIT = 100 * 1024 * 1024
@@ -19,12 +20,24 @@ RUN_TEXT_FIELDS = (
     "status",
     "conclusion",
     "startedAt",
+    "completedAt",
     "updatedAt",
     "createdAt",
     "displayTitle",
     "url",
 )
 JOB_TEXT_FIELDS = ("name", "status", "conclusion", "startedAt", "completedAt", "url")
+
+
+def _valid_timestamps(record: dict, fields: tuple[str, ...]) -> bool:
+    for field in fields:
+        value = record.get(field)
+        if not value:
+            continue
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return False
+    return True
 
 
 @dataclass
@@ -98,6 +111,10 @@ class Cache:
                     for key in RUN_TEXT_FIELDS
                 ):
                     return None
+                if not _valid_timestamps(
+                    run, ("startedAt", "completedAt", "updatedAt", "createdAt")
+                ):
+                    return None
 
             restored = []
             for run in runs:
@@ -114,6 +131,8 @@ class Cache:
                         job.get(key) is not None and not isinstance(job[key], str)
                         for key in JOB_TEXT_FIELDS
                     ):
+                        return None
+                    if not _valid_timestamps(job, ("startedAt", "completedAt")):
                         return None
                 restored.append((run, jobs))
         except (OSError, ValueError, KeyError, TypeError):

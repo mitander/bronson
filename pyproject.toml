@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bronson"
 version = "0.3.0"
-description = "A terminal UI for GitHub Actions"
+description = "A terminal UI for GitHub Actions and read-only GitLab CI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["textual>=8.2.0", "rich>=14.0.0", "watchfiles>=1.0"]

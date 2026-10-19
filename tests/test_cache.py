@@ -130,6 +130,29 @@ class CacheTest(unittest.TestCase):
                 self.write_payload(payload)
                 self.assertIsNone(self.cache.load_snapshot("owner/repo", revision))
 
+    def test_cached_timestamps_must_be_parseable_and_timezone_aware(self):
+        for value in ("invalid", "2026-01-01T00:00:00", "2026-01-01"):
+            for field in ("startedAt", "completedAt", "updatedAt", "createdAt"):
+                with self.subTest(value=value, field=field):
+                    payload = copy.deepcopy(self.payload)
+                    payload["runs"][0][field] = value
+                    self.write_payload(payload)
+                    self.assertIsNone(self.cache.load_snapshot("owner/repo", revision))
+            for field in ("startedAt", "completedAt"):
+                with self.subTest(value=value, job_field=field):
+                    payload = copy.deepcopy(self.payload)
+                    payload["details"]["1"]["jobs"][0][field] = value
+                    self.write_payload(payload)
+                    self.assertIsNone(self.cache.load_snapshot("owner/repo", revision))
+
+    def test_valid_cached_completion_time_round_trips(self):
+        payload = copy.deepcopy(self.payload)
+        payload["runs"][0]["startedAt"] = "2026-01-01T00:00:00Z"
+        payload["runs"][0]["completedAt"] = "2026-01-01T00:01:00+00:00"
+        self.write_payload(payload)
+        snapshot = self.cache.load_snapshot("owner/repo", revision)
+        self.assertEqual(snapshot.runs[0]["completedAt"], "2026-01-01T00:01:00+00:00")
+
     def test_size_limit_is_checked_before_reading(self):
         path = self.write_payload(self.payload)
         with path.open("ab") as file:

@@ -1,10 +1,11 @@
 # Decompose Bronson before adding GitLab
 
-Status: extraction in progress. The executable now lives in `bronson/cli.py` and starts through
-`python -m bronson`. Pure log presentation lives in `bronson/logs.py`, and log storage plus the
-dashboard-v1 codec live in `bronson/cache.py`. Their owning tests are in `tests/`. The dashboard
-receives a cache instance and still owns freshness and snapshot application. Process execution and
-GitHub extraction are next. GitLab support has not shipped.
+Status: provider extraction is implemented. Startup and widgets still live in `bronson/cli.py`. Pure
+log presentation lives in `bronson/logs.py`, and storage plus the dashboard-v1 codec live in
+`bronson/cache.py`. `bronson/models.py` owns repository identity and typed display records.
+`bronson/providers/` owns process execution, repository resolution, GitHub access, and read-only
+GitLab access. Tests live in `tests/`. Splitting the UI into the target tree below remains future
+work, not a prerequisite for the shared provider interface.
 
 ## Goal and boundary
 
@@ -12,9 +13,10 @@ Give each mechanism one owner so GitLab can be added without teaching every widg
 Preserve the working GitHub UI, CLI, caches, and cancellation behavior during extraction. Keep
 Python 3.10 and Textual. A second provider does not justify a language migration.
 
-The first milestone is decomposition with GitHub only. GitLab comes next. Named workspace groups and
-session restore follow that. Do not implement future modules, configuration formats, or commands
-just to fill out this tree.
+Provider extraction preserved GitHub behavior before adding read-only GitLab. The remaining UI file
+moves are independent of provider access, so they are deferred rather than bundled into the second
+backend. Named workspace groups and session restore remain future work. Do not implement modules,
+configuration formats, or commands just to fill out this tree.
 
 ## Design choice
 
@@ -80,42 +82,47 @@ Bronson.
 [Package metadata](../pyproject.toml) owns dependencies and the installed console entry point.
 Editable installations support a live checkout without external wrappers or `PYTHONPATH` wiring.
 
-An immutable repository reference carries provider, hostname, and full project path. Do not
-introduce an ambient mutable current repository. In the first milestone this reference represents
-GitHub on `github.com`; do not claim enterprise support without implementing and testing it.
+An immutable repository reference carries provider, hostname, and full project path. There is no
+ambient mutable current repository. GitHub access supports `github.com`. GitLab access uses an
+explicit host on every request. Unknown origin hosts require `--provider gitlab`, rather than being
+guessed from their names. Enterprise GitHub support remains unimplemented.
 
 ### Models and provider contract
 
-`models.py` uses standard-library types and annotations at the boundary. Prefer small dataclasses
-and explicit states over untyped response dictionaries. It imports neither Textual nor provider
-modules.
+`models.py` uses standard-library types and annotations at the boundary. Repository identity and
+run-detail enrichment use dataclasses. Runs and jobs use typed display dictionaries, retaining the
+existing dashboard-v1 field vocabulary to avoid a second codec or a cache migration during
+extraction. These are shared display records, not arbitrary API responses. The model owner imports
+neither Textual nor provider modules.
 
 Runs and jobs expose identity, display metadata, URLs, timestamps, native status, normalized phase
 and outcome, and a revision token where needed. Retain the distinction between execution phase and
 result. Unknown provider values remain visible rather than becoming success. Revision tokens are
 opaque to widgets; GitHub owns how attempt, status, and update time affect freshness.
 
-The provider owns:
+The provider interface owns:
 
 - listing a bounded number of recent runs;
-- loading a run and all its current jobs, including pagination;
+- loading current jobs, including pagination, and optional title/timing metadata;
 - fetching a job log;
-- retrying failed jobs, rerunning all jobs, and canceling a run;
+- retrying failed jobs, rerunning all jobs, and canceling a run when supported;
 - declaring supported actions and mapping provider errors into useful failures.
 
 Methods receive operation names and IDs, not CLI argument arrays assembled by widgets. Capability
 checks belong at the provider boundary as well as in UI affordances. Run state still determines
 whether an action is currently applicable.
 
-GitHub-specific fields such as `databaseId`, `headBranch`, and `conclusion` stop at the adapter.
-Normalize once. During migration, convert one complete call path at a time and remove the old access
-path rather than maintaining parallel model implementations.
+Normalize API responses once in each adapter. Widgets consume only the shared display fields, never
+native response payloads or CLI argument arrays. The retained display vocabulary includes
+`databaseId`, `headBranch`, and `conclusion`. GitLab maps pipeline IDs, refs, and results into those
+same fields. Execution phase and result remain distinct, and unknown status strings remain visible.
+Remove old access paths rather than maintaining parallel implementations.
 
 ### Process execution and cancellation
 
-Move `run_process` out of the UI module. It currently discovers the Textual worker internally.
-Replace that dependency with an explicit cancellation predicate supplied by the UI worker, with a
-harmless default for synchronous callers and tests.
+`providers/process.py` owns `run_process`. It receives an explicit cancellation predicate supplied
+by the UI worker, with a harmless default for synchronous callers and tests. It has no Textual
+dependency.
 
 Preserve timeouts, child termination and reaping, stdout/stderr handling, and exception causes. Test
 cancellation with a real short-lived subprocess. Do not silently change CLI authentication or output
@@ -141,9 +148,10 @@ Keep in-memory request coordination and UI freshness decisions in the dashboard.
 policy in the cache owner. Cache paths are constructor inputs rather than module globals, so tests
 use temporary directories without patching application internals.
 
-Host/provider/workspace cache namespacing is required before multiple contexts ship. That later
-change must version or deliberately discard legacy cache data rather than reinterpret it under
-another host.
+GitLab cache identities include provider, host, and full project path. GitHub on `github.com`
+retains its legacy identity. Legacy data is never reinterpreted under a different host or provider.
+Both snapshot payloads and file keys include the repository identity. Workspace namespacing remains
+future work.
 
 ### Logs and presentation
 
@@ -216,23 +224,39 @@ The decomposition is done when existing behavior and tests pass, the CLI owns st
 GitHub API knowledge lives in the adapter, and each mechanism has one implementation owner. No
 GitLab adapter or workspace implementation is necessary to satisfy this milestone.
 
-## Follow-on work, not part of extraction
+## Read-only GitLab boundary
 
-Add `providers/gitlab.py` next, using `glab` and explicit host routing. Its API mapping must account
-for nested project paths, pagination, manual/scheduled jobs, allowed failures, job traces, and the
-absence of pipeline-level rerun-all semantics. Re-read the current official APIs when implementing,
-especially for the target self-managed GitLab version.
+`providers/gitlab.py` uses `glab api --hostname HOST --method GET`. It URL-encodes the full project
+path as one API segment. It fetches at most 100 recent top-level pipelines and paginates current
+jobs, excluding retried attempts. A pagination safety limit fails the request instead of presenting
+partial jobs as complete. Pipeline details supply timing, and job commit metadata supplies titles.
+Child pipelines and bridge jobs are not expanded.
 
-Then add `workspaces.py` for named repository groups and lightweight session restore. A workspace
-may contain either provider. Credentials stay in `gh`/`glab`, not workspace files. Switching must
-cancel local reads and reject late callbacks from an old context generation. Namespace local caches,
-define environment-token precedence, and keep mutations attached to their original context before
-enabling switching. Workspaces are not an OS security boundary.
+Manual and scheduled states stay unfinished. Allowed failures retain failure results and carry an
+explicit label. Unknown states never become success. Completed job traces use the same presentation
+and cache as GitHub. Running traces are not fetched or cached.
+
+GitLab declares no mutation capability, rejects mutation calls at the provider boundary, and the UI
+blocks `r`, `R`, and `c`. Saved `glab` authentication owns host-specific credentials. Ambient token
+and CI auto-login overrides are removed from the child environment. Ambient API-host and protocol
+overrides are removed too. Account and routing authority stays in the saved host settings, so an
+origin cannot redirect an unrelated environment token to another host. No authentication credentials
+enter display records or snapshots. Read-only fake-provider tests do not establish live self-managed
+version compatibility.
+
+## Follow-on work
+
+Finish the independent UI file moves when needed. Add `workspaces.py` for named repository groups
+and lightweight session restore. A workspace may contain either provider. Credentials stay in
+`gh`/`glab`, not workspace files. Switching must cancel local reads and reject late callbacks from
+an old context generation. Namespace local caches, define environment-token precedence, and keep
+mutations attached to their original context before enabling switching. Workspaces are not an OS
+security boundary.
 
 Keep dashboard snapshots separate from session state: snapshots accelerate display; sessions
 remember selection and filters. Neither is fresh provider truth. Freeze their configuration and
 persistence formats only when that feature is implemented and tested.
 
-API references for the next milestone: [Pipelines](https://docs.gitlab.com/api/pipelines/),
+GitLab API references: [Pipelines](https://docs.gitlab.com/api/pipelines/),
 [Jobs](https://docs.gitlab.com/api/jobs/), [glab API](https://docs.gitlab.com/cli/api/), and
 [glab authentication](https://docs.gitlab.com/cli/auth/login/).

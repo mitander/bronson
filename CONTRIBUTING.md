@@ -1,8 +1,8 @@
 # Contributing to Bronson
 
 Read [AGENTS.md](AGENTS.md) for engineering rules and
-[the decomposition design](docs/DECOMPOSITION.md) for the planned package boundaries. The
-decomposition is the first milestone; GitLab and workspaces come afterward.
+[the decomposition design](docs/DECOMPOSITION.md) for provider ownership and the remaining UI
+extraction. GitLab access is read-only. Workspaces remain future work.
 
 ## Setup
 
@@ -17,9 +17,9 @@ npm install --global prettier@3.9.6
 ```
 
 Node.js/npm are only needed to install the Markdown formatter. They are not runtime dependencies.
-GitHub CLI authentication is needed for live use, not the deterministic tests. Run `bronson` from
-any repository after activating this environment, or use the editable pipx installation documented
-in [README.md](README.md).
+Authenticate with `gh` or `glab` for live use, depending on the provider. Deterministic tests need
+neither CLI nor authentication. Run `bronson` from any repository after activating this environment,
+or use the editable pipx installation documented in [README.md](README.md).
 
 To check the distributable separately from the editable checkout:
 
@@ -87,8 +87,10 @@ For a focused iteration, run the application tests or extracted log and cache te
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-The gate runs both directories while extraction is in progress. Move tests into `tests/` as their
-owners move into the package. No new test framework is needed.
+Provider mapping tests live in `tests/test_github.py` and `tests/test_gitlab.py`. Process and
+repository identity tests exercise their extracted owners without Textual. Dashboard tests use fake
+responses, including read-only GitLab navigation and cache isolation. No new test framework is
+needed.
 
 For documentation changes, also check that local file links and heading anchors resolve and that
 planned behavior is not presented as shipped. The gate does not currently automate link checking.

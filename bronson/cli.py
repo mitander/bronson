@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GitHub Actions dashboard for the tmux Actions role window.
+"""GitHub Actions and read-only GitLab CI dashboard.
 
 A responsive dashboard: runs and inline jobs on the left, job logs on the right.
 Small terminals use full-width drill-down views. Press ? for the full key list.
@@ -22,15 +22,13 @@ esc/q close. The header keeps the
 gate name and status visible while you scroll; job sections are called out in
 the text and error lines are red, warnings yellow.
 
-Run and gate data come from `gh`, cached per run and refreshed in the
-background, so authentication and rate limits follow the GitHub CLI. Colors
-follow the Flume theme suite when available.
+Providers own CLI access through `gh` or `glab`. The dashboard owns refresh,
+selection, and shared log caching. Colors follow Flume when available.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -58,6 +56,11 @@ from bronson.logs import (
     render_log,
     style_log_line,
 )
+from bronson.models import Repository, RunDetails, run_revision
+from bronson.providers import Mutation, Provider
+from bronson.providers.github import GitHubProvider
+from bronson.providers.gitlab import GitLabProvider
+from bronson.providers.repository import origin_remote, resolve_repository
 from bronson.themes import (
     active_flume_theme,
     load_flume_themes,
@@ -66,13 +69,9 @@ from bronson.themes import (
 )
 
 # --------------------------------------------------------------------------
-# gh plumbing
+# startup and shared presentation
 # --------------------------------------------------------------------------
 
-RUN_FIELDS = (
-    "databaseId,workflowName,headBranch,headSha,status,conclusion,"
-    "startedAt,updatedAt,createdAt,displayTitle,url,attempt"
-)
 VERSION = "0.5.0"
 PANE_MIN_WIDTH = 120
 PANE_MIN_HEIGHT = 22
@@ -96,61 +95,17 @@ STATUS_STYLE = {
     "waiting": ("warning", "yellow", "○"),
     "requested": ("warning", "yellow", "○"),
     "pending": ("warning", "yellow", "○"),
+    "manual": ("warning", "yellow", "◇"),
+    "scheduled": ("warning", "yellow", "◷"),
 }
 
 
-def repo_from_git(cwd: str) -> str | None:
-    """Resolve owner/repo from the origin remote, like `gh repo view`."""
+def request_cancelled() -> bool:
+    """Supply worker cancellation without coupling providers to Textual."""
     try:
-        url = subprocess.run(
-            ["git", "-C", cwd, "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    for prefix in ("git@github.com:", "ssh://git@github.com/", "https://github.com/"):
-        if url.startswith(prefix):
-            return url[len(prefix) :].removesuffix(".git")
-    return None
-
-
-def run_process(
-    args: list[str], *, timeout: float = 30, check: bool = False
-) -> subprocess.CompletedProcess[str]:
-    """Stop local CLI requests when their Textual worker is cancelled."""
-    try:
-        worker = get_current_worker()
+        return get_current_worker().is_cancelled
     except NoActiveWorker:
-        worker = None
-    deadline = time.monotonic() + timeout
-
-    with subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    ) as process:
-        try:
-            while True:
-                if worker and worker.is_cancelled:
-                    raise subprocess.SubprocessError("Request cancelled")
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise subprocess.TimeoutExpired(args, timeout)
-                try:
-                    stdout, stderr = process.communicate(timeout=min(0.05, remaining))
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.communicate()
-
-        result = subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
-        if check:
-            result.check_returncode()
-        return result
+        return False
 
 
 def open_in_browser(url: str) -> None:
@@ -168,38 +123,6 @@ def open_in_browser(url: str) -> None:
         except (OSError, subprocess.SubprocessError):
             pass
     webbrowser.open(url)
-
-
-def gh_json(args: list[str], timeout: int = 30) -> dict | list:
-    output = run_process(["gh", *args], check=True, timeout=timeout).stdout
-    return json.loads(output)
-
-
-def run_revision(run: dict) -> tuple:
-    return (run.get("attempt", 1), run.get("status"), run.get("updatedAt"))
-
-
-def fetch_jobs(repo: str, run_id: int) -> list[dict]:
-    """Fetch jobs directly, without gh run view's run/workflow round trips."""
-    pages = gh_json(
-        [
-            "api",
-            f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100",
-            "--paginate",
-            "--slurp",
-        ]
-    )
-    return [
-        {
-            **job,
-            "databaseId": job["id"],
-            "startedAt": job.get("started_at"),
-            "completedAt": job.get("completed_at"),
-            "url": job.get("html_url"),
-        }
-        for page in pages
-        for job in page["jobs"]
-    ]
 
 
 def update_table(table: DataTable, rows: list[tuple[str, list[Text]]]) -> None:
@@ -413,8 +336,9 @@ class LogScreen(ModalScreen):
                     [
                         Text(f"── {label} ", style="bold dim"),
                         Text(
-                            "Job still running or queued. Logs appear when it finishes. "
-                            "Press o for live output in GitHub.",
+                            f"Job is {job.get('status') or 'unknown'}. "
+                            "Logs appear when it finishes. "
+                            f"Press o to open {self.app.provider.name}.",
                             style="dim",
                         ),
                     ]
@@ -714,7 +638,7 @@ def run_length(run: dict, now: datetime) -> str | None:
     if start is None:
         return None
     if run.get("status") == "completed":
-        end = parse_time(run.get("updatedAt")) or now
+        end = parse_time(run.get("completedAt") or run.get("updatedAt")) or now
     else:
         end = now
     return length_label(start, end)
@@ -773,6 +697,12 @@ class HelpScreen(ModalScreen):
     """
 
     def compose(self) -> ComposeResult:
+        mutation_help = (
+            "  r / R           Rerun failed / all jobs in selected run\n"
+            "  c               Cancel selected run\n"
+            if self.app.provider.can_mutate
+            else "  GitLab is read-only. Pipeline actions are disabled.\n"
+        )
         with ScrollableContainer(id="help-body"):
             yield Static(
                 Text(
@@ -786,11 +716,8 @@ class HelpScreen(ModalScreen):
                     "  enter           Jobs, or expand selected job log\n"
                     "  escape          Return to runs / close expanded view\n"
                     "  g / G           Logs / failed job logs\n"
-                    "  o               Open selected run or job in GitHub\n"
-                    "  ctrl+r          Refresh now\n"
-                    "  r / R           Rerun failed / all jobs in selected run\n"
-                    "  c               Cancel selected run\n"
-                    "  q               Quit\n\n"
+                    "  o               Open selected run or job in browser\n"
+                    "  ctrl+r          Refresh now\n" + mutation_help + "  q               Quit\n\n"
                     "Expanded logs\n"
                     "  j / k           Scroll lines\n"
                     "  d / u, ctrl-d/u Page down / up\n"
@@ -939,7 +866,10 @@ class JobPane(Vertical):
         if self._preview_timer:
             self._preview_timer.stop()
         if job.get("status") != "completed":
-            self.set_preview("Job still running or queued. Open in GitHub for live output.")
+            self.set_preview(
+                f"Job is {job.get('status') or 'unknown'}. "
+                f"Completed job logs appear here. Open in {self.app.provider.name} for live output."
+            )
         elif job.get("conclusion") == "skipped":
             self.set_preview("Job skipped. No log output.")
         else:
@@ -1073,7 +1003,13 @@ class JobDetailScreen(ModalScreen):
         if error or data is None:
             self.jobs = []
             update_table(
-                table, [("error", [Text("✗", style="red"), Text(f"gh failed: {error}"), dash()])]
+                table,
+                [
+                    (
+                        "error",
+                        [Text("✗", style="red"), Text(f"Provider request failed: {error}"), dash()],
+                    )
+                ],
             )
             return
         self.jobs = data.get("jobs") or []
@@ -1220,9 +1156,20 @@ class ActionsDashboard(App):
         ("right_square_bracket", "widen_runs", "Widen runs"),
     ]
 
-    def __init__(self, repo: str, cache: Cache, theme_name: str | None = None) -> None:
+    def __init__(
+        self,
+        repo: str,
+        cache: Cache,
+        theme_name: str | None = None,
+        *,
+        provider: Provider | None = None,
+    ) -> None:
         super().__init__()
-        self.repo = repo
+        self.provider = provider or GitHubProvider(
+            Repository("github", "github.com", repo), request_cancelled
+        )
+        self.repo = self.provider.repository.label
+        self.cache_key = self.provider.repository.cache_key
         self.cache = cache
         self.theme_override = theme_name or os.environ.get("BRONSON_THEME")
         if self.theme_override == "auto":
@@ -1284,7 +1231,7 @@ class ActionsDashboard(App):
 
     def restore_snapshot(self) -> None:
         """Cached data is a startup hint, never a replacement for polling."""
-        snapshot = self.cache.load_snapshot(self.repo, run_revision)
+        snapshot = self.cache.load_snapshot(self.cache_key, run_revision)
         if snapshot is None:
             return
         self.runs = snapshot.runs
@@ -1300,7 +1247,9 @@ class ActionsDashboard(App):
             if self._detail_revisions.get(run["databaseId"]) == run_revision(run)
             and run["databaseId"] in self.details
         ]
-        self.cache.save_snapshot(self.repo, DashboardSnapshot(self.runs, details), run_revision)
+        self.cache.save_snapshot(
+            self.cache_key, DashboardSnapshot(self.runs, details), run_revision
+        )
 
     def on_resize(self) -> None:
         if self.is_mounted:
@@ -1568,22 +1517,11 @@ class ActionsDashboard(App):
     @work(thread=True, exclusive=True, group="poll")
     def fetch_runs(self) -> None:
         try:
-            runs = gh_json(
-                [
-                    "run",
-                    "list",
-                    "--repo",
-                    self.repo,
-                    "--json",
-                    RUN_FIELDS,
-                    "--limit",
-                    str(ROW_LIMIT),
-                ]
-            )
+            runs = self.provider.list_runs(ROW_LIMIT)
             error = None
         except (OSError, subprocess.SubprocessError, ValueError) as exc:
             runs = []
-            error = str(exc).strip().splitlines()[-1] if str(exc) else "gh failed"
+            error = str(exc).strip().splitlines()[-1] if str(exc) else "Provider request failed"
         if not get_current_worker().is_cancelled:
             self.app.call_from_thread(self.apply_runs, runs, error)
 
@@ -1599,6 +1537,11 @@ class ActionsDashboard(App):
         self.runs = runs
         for run in runs:
             previous = old.get(run["databaseId"])
+            if previous and run_revision(previous) == run_revision(run):
+                # Details may supply metadata absent from a provider's list API.
+                for key in ("displayTitle", "startedAt", "completedAt"):
+                    if previous.get(key) is not None:
+                        run[key] = previous[key]
             if previous and run_revision(previous) != run_revision(run):
                 self.invalidate_detail(run["databaseId"])
                 self.request_detail(run, force=True)
@@ -1768,24 +1711,13 @@ class ActionsDashboard(App):
 
     def load_job_log(self, job_id: int) -> str:
         """One download per job, shared by previews and expanded viewers."""
-        key = (self.repo, f"job-raw-v1:{job_id}")
+        key = (self.cache_key, f"job-raw-v1:{job_id}")
         with self._log_locks.setdefault(key, threading.Lock()):
             raw = self.log_cache.get(key)
             if raw is None:
                 raw = self.cache.get_log(*key)
             if raw is None:
-                proc = run_process(
-                    [
-                        "gh",
-                        "api",
-                        "--allow-escape-sequences",
-                        f"repos/{self.repo}/actions/jobs/{job_id}/logs",
-                    ],
-                    timeout=60,
-                )
-                if proc.returncode:
-                    raise ValueError(proc.stderr.strip() or "Log download failed")
-                raw = proc.stdout
+                raw = self.provider.job_log(job_id)
                 if raw:
                     self.cache.put_log(*key, raw)
             if raw:
@@ -1818,12 +1750,14 @@ class ActionsDashboard(App):
 
     @work(thread=True, exclusive=False, group="gates")
     def fetch_gates(self, run_id: int, revision: tuple) -> None:
+        metadata = None
         try:
-            jobs, error = fetch_jobs(self.repo, run_id), None
+            metadata = self.provider.details(run_id)
+            jobs, error = metadata.jobs, None
         except (OSError, subprocess.SubprocessError, ValueError) as exc:
             jobs, error = [], str(exc)
         if not get_current_worker().is_cancelled:
-            self.app.call_from_thread(self.apply_gates, run_id, revision, jobs, error)
+            self.app.call_from_thread(self.apply_gates, run_id, revision, jobs, error, metadata)
 
     def apply_gates(
         self,
@@ -1831,6 +1765,7 @@ class ActionsDashboard(App):
         revision: tuple,
         jobs: list[dict],
         error: str | None,
+        metadata: RunDetails | None = None,
         *,
         persist: bool = True,
     ) -> None:
@@ -1845,6 +1780,13 @@ class ActionsDashboard(App):
             self.detail_errors[run_id] = error
             return
         self.detail_errors.pop(run_id, None)
+        if run and metadata:
+            if metadata.title:
+                run["displayTitle"] = metadata.title
+            if metadata.started_at:
+                run["startedAt"] = metadata.started_at
+            if metadata.completed_at:
+                run["completedAt"] = metadata.completed_at
         self.details[run_id] = {"jobs": jobs}
         # A completed run may briefly precede the final jobs response.
         pending = any(j.get("status") != "completed" for j in jobs)
@@ -2006,15 +1948,11 @@ class ActionsDashboard(App):
     # -- run actions ---------------------------------------------------------
 
     @work(thread=True, exclusive=False, group="mutate")
-    def mutate_run(self, run_id: int, args: list[str], label: str) -> None:
+    def mutate_run(self, run_id: int, action: Mutation, label: str) -> None:
         try:
-            run_process(
-                ["gh", *args, "--repo", self.repo],
-                check=True,
-                timeout=30,
-            )
+            self.provider.mutate(run_id, action)
             ok, detail = True, label
-        except (OSError, subprocess.SubprocessError) as exc:
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
             ok = False
             detail = str(exc).strip().splitlines()[-1] if str(exc) else "failed"
         if not get_current_worker().is_cancelled:
@@ -2035,6 +1973,9 @@ class ActionsDashboard(App):
         return None
 
     def action_rerun_failed(self) -> None:
+        if not self.provider.can_mutate:
+            self.notify("GitLab is read-only. Pipeline actions are disabled.")
+            return
         run = self._selected_completed()
         if not run:
             return
@@ -2043,20 +1984,26 @@ class ActionsDashboard(App):
             return
         self.mutate_run(
             run["databaseId"],
-            ["run", "rerun", str(run["databaseId"]), "--failed"],
+            "rerun_failed",
             "rerunning failed jobs…",
         )
 
     def action_rerun_all(self) -> None:
+        if not self.provider.can_mutate:
+            self.notify("GitLab is read-only. Pipeline actions are disabled.")
+            return
         run = self._selected_completed()
         if run:
             self.mutate_run(
                 run["databaseId"],
-                ["run", "rerun", str(run["databaseId"])],
+                "rerun_all",
                 "rerunning all jobs…",
             )
 
     def action_cancel_run(self) -> None:
+        if not self.provider.can_mutate:
+            self.notify("GitLab is read-only. Pipeline actions are disabled.")
+            return
         run = self.selected_run()
         if not run:
             return
@@ -2065,24 +2012,38 @@ class ActionsDashboard(App):
             return
         self.mutate_run(
             run["databaseId"],
-            ["run", "cancel", str(run["databaseId"])],
+            "cancel",
             "cancelling…",
         )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="GitHub Actions dashboard")
-    parser.add_argument("--repo", help="owner/repository (defaults to git origin)")
+    parser = argparse.ArgumentParser(description="GitHub Actions and read-only GitLab CI dashboard")
+    parser.add_argument(
+        "--repo", help="owner/repository or group/subgroup/project (defaults to origin)"
+    )
+    parser.add_argument(
+        "--provider", choices=("github", "gitlab"), help="Required for self-hosted GitLab"
+    )
+    parser.add_argument("--host", help="API hostname, optionally with an HTTPS port")
     parser.add_argument("--theme", help="Theme name, e.g. flume-dusk, or auto to follow Flume sync")
     args = parser.parse_args()
-    repo = args.repo
-    if not repo:
-        repo = repo_from_git(str(Path.cwd()))
-    if not repo:
-        print("bronson: no --repo and no git origin remote", file=sys.stderr)
-        raise SystemExit(1)
+    try:
+        repository = resolve_repository(
+            args.repo,
+            args.provider,
+            args.host,
+            origin_remote(str(Path.cwd())) if args.repo is None else None,
+        )
+    except ValueError as exc:
+        print(f"bronson: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "bronson" / "logs"
-    ActionsDashboard(repo, Cache(cache_root), theme_name=args.theme).run()
+    provider_type = GitLabProvider if repository.provider == "gitlab" else GitHubProvider
+    provider = provider_type(repository, request_cancelled)
+    ActionsDashboard(
+        repository.label, Cache(cache_root), theme_name=args.theme, provider=provider
+    ).run()
 
 
 if __name__ == "__main__":
