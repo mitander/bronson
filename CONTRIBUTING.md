@@ -13,10 +13,10 @@ preferred:
 python3 -m venv ~/.venvs/bronson
 . ~/.venvs/bronson/bin/activate
 python -m pip install -e . ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
-npm install --global prettier@3.9.6
+npm install --global prettier@3.9.6 pyright@1.1.411
 ```
 
-Node.js/npm are only needed to install the Markdown formatter. They are not runtime dependencies.
+Node.js/npm install the Markdown formatter and type checker. They are not runtime dependencies.
 Authenticate with `gh` or `glab` for live use, depending on the provider. Deterministic tests need
 neither CLI nor authentication. Run `bronson` from any repository after activating this environment,
 or use the editable pipx installation documented in [README.md](README.md).
@@ -42,8 +42,8 @@ owner:
 
 - Python 3.10-compatible syntax, four-space indentation, double quotes, and LF endings;
 - a 100-column formatting target, allowing indivisible strings and URLs;
-- lint rules `E4`, `E7`, `E9`, `F`, `I`, and `B` for basic errors, unused names, import ordering,
-  and likely bugs, not an encyclopedia of style rules;
+- lint rules `E4`, `E7`, `E9`, `F`, `I`, `B`, `UP`, and `C4` for basic errors, import ordering,
+  likely bugs, Python 3.10 idioms, and unnecessary collection construction;
 - Ruff 0.16.6, without preview rules.
 
 Markdown and structured data use Prettier 3.9.6 with the repository's `.prettierrc.json`: 100
@@ -64,12 +64,43 @@ changes. Never enable unsafe fixes just to make the gate pass. Suppressions must
 explained.
 
 Prefer precise names and coherent modules over comments or abstractions that only shorten a file.
-Comments explain non-local invariants, compatibility, or why an obvious alternative is wrong.
+Group validation, calculation, I/O, and cleanup visibly. Annotate maintained interfaces and
+meaningful records with precise container elements. Use dataclasses for owned records and TypedDict
+for display dictionaries. Keep execution phase separate from result and preserve unknown provider
+states.
+
+Annotations do not validate external data. Check consumed fields at the provider boundary, reject
+malformed values explicitly, and keep diagnostics free of payloads and credentials. Catch specific
+operating failures and preserve causes when adding context. Required validation must also work under
+`python -O`. Keep cancellation and subprocess reaping intact during type or style changes.
+
+Comments explain non-local invariants, compatibility, or why an obvious alternative is wrong. Caller
+docs describe consequential obligations, not mandatory templates for every private helper.
+
+## Type checking
+
+Run the pinned Pyright 1.1.411 against the same environment used for tests:
+
+```sh
+./scripts/typecheck.sh
+# Or select an environment without activating it:
+PYTHON=~/.venvs/bronson/bin/python ./scripts/typecheck.sh
+```
+
+[pyrightconfig.json](pyrightconfig.json) explicitly includes `bronson` and `tests` in standard mode,
+with Python 3.10 as the syntax target. Models, the GitHub adapter, and its tests use strict
+checking. The script checks the tool version and never installs dependencies or rewrites files.
+
+The remaining strict migration covers the GitLab adapter, repository/process helpers, cache, log and
+theme owners, then dashboard state and their tests. Standard mode already checks these files, but
+inferred unknown types and unannotated legacy interfaces remain. Narrow Textual app annotations name
+the dashboard that owns these widgets without suppressing framework diagnostics. A single explained
+test exception deliberately passes invalid input to exercise GitLab's runtime validation.
 
 ## Validation
 
-The full local deterministic gate checks formatting, lint, unit and Textual integration tests, and
-patch whitespace:
+The full local deterministic gate checks formatting, lint, types, unit and Textual integration
+tests, and patch whitespace:
 
 ```sh
 ./scripts/ci-local.sh

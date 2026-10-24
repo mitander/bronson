@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from textual.color import Color, ColorParseError
@@ -216,7 +216,7 @@ def active_flume_theme() -> str | None:
     return name if name in _ROLES else None
 
 
-async def watch_flume_theme_changes() -> AsyncIterator[str]:
+async def watch_flume_theme_changes() -> AsyncGenerator[str, None]:
     # Watch the parent, not the symlink target: Flume swaps current atomically.
     schema = _schema_file()
     extras = schema.parent.parent

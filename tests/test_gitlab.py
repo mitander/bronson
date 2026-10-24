@@ -165,9 +165,8 @@ class GitLabTests(unittest.TestCase):
             return True
 
         provider = GitLabProvider(self.provider.repository, cancelled)
-        environment = {
-            name: "do-not-forward"
-            for name in (
+        environment: dict[str, str] = dict.fromkeys(
+            (
                 "GITLAB_TOKEN",
                 "GITLAB_ACCESS_TOKEN",
                 "OAUTH_TOKEN",
@@ -191,8 +190,9 @@ class GitLabTests(unittest.TestCase):
                 "GITLAB_CI",
                 "CI",
                 "GLAB_DEBUG_HTTP",
-            )
-        }
+            ),
+            "do-not-forward",
+        )
         environment.update({"PATH": "/bin", "GLAB_CONFIG_DIR": "/tmp/fake-glab-config"})
         with (
             patch.dict("os.environ", environment, clear=True),
@@ -258,5 +258,6 @@ class GitLabTests(unittest.TestCase):
                 patch("bronson.providers.gitlab.run_process") as execute,
             ):
                 with self.assertRaises(ValueError):
-                    self.provider.job_log(identifier)
+                    # Deliberately violate the interface to exercise runtime validation.
+                    self.provider.job_log(identifier)  # pyright: ignore[reportArgumentType]
                 execute.assert_not_called()

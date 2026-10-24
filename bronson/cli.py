@@ -37,6 +37,7 @@ import time
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 from textual import work
@@ -206,6 +207,10 @@ def rail_markers(rows: set[int], total: int, height: int) -> set[int]:
 
 class LogScreen(ModalScreen):
     """Full-screen log viewer with a sticky context header and / search."""
+
+    # These widgets only mount in ActionsDashboard. Keep Textual's runtime app property.
+    if TYPE_CHECKING:
+        app: ActionsDashboard
 
     BINDINGS = [
         ("escape", "close", "Close"),
@@ -685,6 +690,9 @@ def job_cells(job: dict, now: datetime, color) -> list[Text]:
 
 
 class HelpScreen(ModalScreen):
+    if TYPE_CHECKING:
+        app: ActionsDashboard
+
     BINDINGS = [
         ("escape", "dismiss", "Close"),
         ("q", "dismiss", "Close"),
@@ -739,6 +747,9 @@ class HelpScreen(ModalScreen):
 
 
 class ThemeScreen(ModalScreen):
+    if TYPE_CHECKING:
+        app: ActionsDashboard
+
     BINDINGS = [("escape", "dismiss", "Close"), ("q", "dismiss", "Close")]
     CSS = """
     ThemeScreen { align: center middle; }
@@ -758,12 +769,16 @@ class ThemeScreen(ModalScreen):
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         event.stop()
-        self.app.select_theme(event.option.id)
+        if event.option.id is not None:
+            self.app.select_theme(event.option.id)
         self.dismiss()
 
 
 class JobPane(Vertical):
     """A bounded log preview. Navigation belongs to the inline run/job list."""
+
+    if TYPE_CHECKING:
+        app: ActionsDashboard
 
     def __init__(self) -> None:
         super().__init__(id="detail-pane")
@@ -931,6 +946,9 @@ class JobPane(Vertical):
 
 class JobDetailScreen(ModalScreen):
     """One run's jobs. enter/l opens the highlighted job's log in a pager."""
+
+    if TYPE_CHECKING:
+        app: ActionsDashboard
 
     BINDINGS = [
         ("escape", "close", "Close"),
@@ -1610,7 +1628,7 @@ class ActionsDashboard(App):
                 self.row_map.append(run)
                 rows.append((str(run["databaseId"]), self.run_cells(run, now)))
                 if self.wide and run["databaseId"] == self.expanded_run:
-                    data = self.details.get(self.expanded_run)
+                    data = self.details.get(run["databaseId"])
                     jobs = (data or {}).get("jobs") or []
                     for job in jobs:
                         self.job_rows[len(self.row_map)] = job
@@ -1663,7 +1681,7 @@ class ActionsDashboard(App):
     def gates_cell(self, run: dict) -> Text:
         if run.get("status") == "queued":
             return Text("queued", style=self.color("text_muted", "dim"))
-        gates = self.gates.get(run.get("databaseId"))
+        gates = self.gates.get(run["databaseId"])
         if gates is None:
             return Text("…", style=self.color("text_muted", "dim"))
         passed, total, failed, pending = gates
@@ -1813,7 +1831,7 @@ class ActionsDashboard(App):
                     screen.refresh_log()
 
     def run_has_failures(self, run: dict) -> bool:
-        gates = self.gates.get(run.get("databaseId"))
+        gates = self.gates.get(run["databaseId"])
         return bool(gates and gates[2])
 
     # -- navigation ----------------------------------------------------------
@@ -1833,26 +1851,30 @@ class ActionsDashboard(App):
             row += step
 
     def action_cursor_down(self) -> None:
-        if self.detail_focused():
-            self.focused.scroll_relative(y=1, animate=False)
+        focused = self.focused
+        if self.detail_focused() and focused is not None:
+            focused.scroll_relative(y=1, animate=False)
         else:
             self._move(1)
 
     def action_cursor_up(self) -> None:
-        if self.detail_focused():
-            self.focused.scroll_relative(y=-1, animate=False)
+        focused = self.focused
+        if self.detail_focused() and focused is not None:
+            focused.scroll_relative(y=-1, animate=False)
         else:
             self._move(-1)
 
     def action_cursor_left(self) -> None:
-        if self.detail_focused() and self.focused.id == "preview-scroll":
-            self.focused.scroll_relative(x=-8, animate=False)
+        focused = self.focused
+        if self.detail_focused() and focused is not None and focused.id == "preview-scroll":
+            focused.scroll_relative(x=-8, animate=False)
         else:
             self.action_focus_runs()
 
     def action_cursor_right(self) -> None:
-        if self.detail_focused() and self.focused.id == "preview-scroll":
-            self.focused.scroll_relative(x=8, animate=False)
+        focused = self.focused
+        if self.detail_focused() and focused is not None and focused.id == "preview-scroll":
+            focused.scroll_relative(x=8, animate=False)
         else:
             self.action_detail()
 
@@ -1916,7 +1938,7 @@ class ActionsDashboard(App):
         status = run.get("conclusion") or run.get("status") or "?"
         role, fallback, glyph = status_glyph(status)
         color = self.color(role, fallback)
-        gates = self.gates.get(run.get("databaseId"))
+        gates = self.gates.get(run["databaseId"])
         gates_text = f"{gates[0]}/{gates[1]} jobs" if gates else "jobs …"
         return (
             f"[{color}]{glyph}[/{color}] [b]{escape_markup(run.get('workflowName', 'run'))}[/b]"

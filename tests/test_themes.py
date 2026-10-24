@@ -54,7 +54,7 @@ def palette(name, background, error, dark=True):
     }
 
 
-class ThemeFixture:
+class ThemeFixture(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -101,16 +101,19 @@ class ThemeFixture:
         staged.replace(self.extras / "current")
 
 
-class ThemeTests(ThemeFixture, unittest.TestCase):
+class ThemeTests(ThemeFixture):
     def test_discovers_config_link_and_preserves_exact_colors(self):
         loaded = themes.load_flume_themes()
         self.assertEqual([theme.name for theme in loaded], ["flume-dusk", "flume-opal"])
         self.assertEqual(loaded[0].background, "#232136")
+        assert loaded[0].variables is not None
         self.assertEqual(loaded[0].variables["text-error"], "#ee7583")
         self.assertEqual(loaded[0].variables["screen-selection-background"], "#73a6b6 30%")
         self.assertEqual(loaded[0].luminosity_spread, 0.0)
         self.assertEqual(loaded[0].text_alpha, 1.0)
-        self.assertEqual(themes.theme_roles("flume-opal")["error"], "#bc3945")
+        roles = themes.theme_roles("flume-opal")
+        assert roles is not None
+        self.assertEqual(roles["error"], "#bc3945")
         self.assertEqual(themes.active_flume_theme(), "flume-dusk")
 
     def test_separate_generated_palettes_follow_shared_schema(self):
@@ -165,8 +168,11 @@ class ThemeTests(ThemeFixture, unittest.TestCase):
         loaded = themes.load_flume_themes()
         self.assertEqual([theme.name for theme in loaded], ["flume-dusk"])
         self.assertEqual(loaded[0].background, "#232136")
+        assert loaded[0].variables is not None
         self.assertEqual(loaded[0].variables["text"], "#eeeeee")
-        self.assertEqual(themes.theme_roles("flume-dusk")["error"], "#ee7583")
+        roles = themes.theme_roles("flume-dusk")
+        assert roles is not None
+        self.assertEqual(roles["error"], "#ee7583")
         self.assertEqual(themes.active_flume_theme(), "flume-dusk")
 
         data["colors"]["bg"] = "#ded4d1"

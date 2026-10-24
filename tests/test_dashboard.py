@@ -17,29 +17,34 @@ from bronson.providers.github import GitHubProvider
 
 
 def run(run_id=1, status="in_progress", attempt=1):
-    return dict(
-        databaseId=run_id,
-        status=status,
-        attempt=attempt,
-        updatedAt="2026-01-01T00:00:00Z",
-        startedAt="2026-01-01T00:00:00Z",
-        workflowName="CI",
-        url=f"https://github.com/owner/repo/actions/runs/{run_id}",
-    )
+    return {
+        "databaseId": run_id,
+        "status": status,
+        "attempt": attempt,
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "startedAt": "2026-01-01T00:00:00Z",
+        "workflowName": "CI",
+        "headBranch": None,
+        "headSha": None,
+        "conclusion": None,
+        "createdAt": None,
+        "displayTitle": None,
+        "url": f"https://github.com/owner/repo/actions/runs/{run_id}",
+    }
 
 
 def job(job_id=10, status="in_progress", conclusion=None):
-    return dict(
-        id=job_id,
-        databaseId=job_id,
-        name=f"job {job_id}",
-        status=status,
-        conclusion=conclusion,
-        started_at="2026-01-01T00:00:00Z",
-        startedAt="2026-01-01T00:00:00Z",
-        html_url=f"https://github.com/owner/repo/actions/runs/1/job/{job_id}",
-        url=f"https://github.com/owner/repo/actions/runs/1/job/{job_id}",
-    )
+    return {
+        "id": job_id,
+        "databaseId": job_id,
+        "name": f"job {job_id}",
+        "status": status,
+        "conclusion": conclusion,
+        "started_at": "2026-01-01T00:00:00Z",
+        "startedAt": "2026-01-01T00:00:00Z",
+        "html_url": f"https://github.com/owner/repo/actions/runs/1/job/{job_id}",
+        "url": f"https://github.com/owner/repo/actions/runs/1/job/{job_id}",
+    }
 
 
 class HelpersTest(unittest.TestCase):
@@ -166,9 +171,13 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
                 app.refresh_rows()
                 app.refresh_rows()
                 clear.assert_not_called()
-            self.assertEqual(app.selected_run()["databaseId"], 1)
+            selected = app.selected_run()
+            assert selected is not None
+            self.assertEqual(selected["databaseId"], 1)
             app.apply_runs([run(2), run(1, "completed")], None)
-            self.assertEqual(app.selected_run()["databaseId"], 1)
+            selected = app.selected_run()
+            assert selected is not None
+            self.assertEqual(selected["databaseId"], 1)
             app.apply_runs([], "offline")
             self.assertEqual(len(app.runs), 2)
             await self.settle(app, pilot)
@@ -191,7 +200,9 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(screen.query_one("#jobs", DataTable).row_count, 2)
             screen.query_one("#jobs", DataTable).move_cursor(row=1)
             app.apply_gates(1, tui.run_revision(self.runs[0]), list(reversed(self.jobs)), None)
-            self.assertEqual(screen.selected_job()["databaseId"], 11)
+            selected = screen.selected_job()
+            assert selected is not None
+            self.assertEqual(selected["databaseId"], 11)
 
     async def test_completion_and_rerun_invalidate_cached_details(self):
         app = tui.ActionsDashboard("owner/repo", self.cache)
@@ -350,7 +361,14 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             for row in expected:
                 strip = rail.render_line(row)
                 self.assertEqual(strip.text, "█")
-                self.assertTrue(any(segment.style.color.number == 1 for segment in strip))
+                self.assertTrue(
+                    any(
+                        segment.style is not None
+                        and segment.style.color is not None
+                        and segment.style.color.number == 1
+                        for segment in strip
+                    )
+                )
             await pilot.press("]", "d")
             self.assertEqual(screen._failure_row, 123)
             await pilot.press("]", "d")
@@ -435,33 +453,48 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
                 await pilot.press("enter")
                 await pilot.pause(0.2)
                 await self.settle(app, pilot)
+                assert pane._preview_key is not None
                 self.assertEqual(pane._preview_key[:2], (1, 10))
+                assert app.focused is not None
                 self.assertEqual(app.focused.id, "runs")
                 self.assertEqual(len(app.job_rows), 2)
                 await pilot.press("j")
                 await pilot.pause(0.2)
                 await self.settle(app, pilot)
-                self.assertEqual(pane.selected_job()["databaseId"], 11)
+                selected = pane.selected_job()
+                assert selected is not None
+                self.assertEqual(selected["databaseId"], 11)
                 await pilot.press("enter")
                 await self.settle(app, pilot)
-                self.assertIsInstance(app.screen, tui.LogScreen)
-                self.assertEqual(app.screen.job["databaseId"], 11)
+                screen = app.screen
+                self.assertIsInstance(screen, tui.LogScreen)
+                assert isinstance(screen, tui.LogScreen)
+                assert screen.job is not None
+                self.assertEqual(screen.job["databaseId"], 11)
                 await pilot.press("escape")
+                assert app.focused is not None
                 self.assertEqual(app.focused.id, "runs")
-                self.assertEqual(pane.selected_job()["databaseId"], 11)
+                selected = pane.selected_job()
+                assert selected is not None
+                self.assertEqual(selected["databaseId"], 11)
                 app.refresh_rows()
                 await pilot.pause()
-                self.assertEqual(pane.selected_job()["databaseId"], 11)
+                selected = pane.selected_job()
+                assert selected is not None
+                self.assertEqual(selected["databaseId"], 11)
                 await pilot.press("tab")
+                assert app.focused is not None
                 self.assertEqual(app.focused.id, "preview-scroll")
                 await pilot.press("?")
                 self.assertIsInstance(app.screen, tui.HelpScreen)
                 await pilot.press("escape")
+                assert app.focused is not None
                 self.assertEqual(app.focused.id, "preview-scroll")
                 await pilot.resize_terminal(80, 24)
                 await pilot.pause()
                 self.assertFalse(app.wide)
                 self.assertFalse(pane.display)
+                assert app.focused is not None
                 self.assertEqual(app.focused.id, "runs")
                 await pilot.press("enter")
                 await self.settle(app, pilot)
@@ -516,22 +549,32 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(150, 40)) as pilot:
                 await self.settle(app, pilot)
                 await pilot.press("enter", "j")
-                self.assertEqual(app.selected_job()["databaseId"], 11)
+                selected = app.selected_job()
+                assert selected is not None
+                self.assertEqual(selected["databaseId"], 11)
                 app.apply_gates(1, tui.run_revision(self.runs[0]), list(reversed(self.jobs)), None)
                 await pilot.pause()
-                self.assertEqual(app.selected_job()["databaseId"], 11)
-                self.assertEqual(app.selected_run()["databaseId"], 1)
+                selected = app.selected_job()
+                assert selected is not None
+                self.assertEqual(selected["databaseId"], 11)
+                selected_run = app.selected_run()
+                assert selected_run is not None
+                self.assertEqual(selected_run["databaseId"], 1)
                 await pilot.resize_terminal(80, 24)
                 await pilot.pause()
                 self.assertIsNone(app.selected_job())
-                self.assertEqual(app.selected_run()["databaseId"], 1)
+                selected_run = app.selected_run()
+                assert selected_run is not None
+                self.assertEqual(selected_run["databaseId"], 1)
                 self.assertEqual(app.query_one("#runs-pane").region.width, 80)
                 await pilot.resize_terminal(150, 40)
                 await pilot.pause()
                 await pilot.press("escape")
                 self.assertFalse(app.job_rows)
                 await pilot.press("enter", "j")
-                selected = app.selected_job()["databaseId"]
+                selected_job = app.selected_job()
+                assert selected_job is not None
+                selected = selected_job["databaseId"]
                 app.apply_gates(
                     1,
                     tui.run_revision(self.runs[0]),
@@ -540,7 +583,9 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
                 )
                 await pilot.pause()
                 self.assertIsNone(app.selected_job())
-                self.assertEqual(app.selected_run()["databaseId"], 1)
+                selected_run = app.selected_run()
+                assert selected_run is not None
+                self.assertEqual(selected_run["databaseId"], 1)
 
     async def test_inline_jobs_loading_empty_error_and_filter_cleanup(self):
         self.runs = [run(1), run(2)]
@@ -561,7 +606,9 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("No jobs yet", str(app._table().get_row("jobs:1")))
                 app.apply_gates(1, tui.run_revision(self.runs[0]), [job(10)], None)
                 await pilot.press("j")
-                self.assertEqual(app.selected_job()["databaseId"], 10)
+                selected = app.selected_job()
+                assert selected is not None
+                self.assertEqual(selected["databaseId"], 10)
                 app.run_filter = "does-not-match"
                 app.refresh_rows()
                 self.assertIsNone(app.expanded_run)
@@ -590,6 +637,7 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             await self.settle(app, pilot)
             old_key = pane._preview_key
             self.assertIsNotNone(old_key)
+            assert old_key is not None
             self.runs = [run(2)]
             app.apply_runs(self.runs, None)
             await self.settle(app, pilot)
@@ -626,14 +674,17 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
             await self.settle(app, pilot)
             self.assertFalse(app.query_one("#run-search", Input).display)
             await pilot.press("/", "i", "n", "s", "t")
+            assert app.focused is not None
             self.assertEqual(app.focused.id, "run-search")
             self.assertEqual([r["databaseId"] for r in app.ordered_runs()], [1])
             await pilot.press("enter")
+            assert app.focused is not None
             self.assertEqual(app.focused.id, "runs")
             self.assertEqual(app.run_filter, "inst")
             await pilot.press("escape")
             self.assertEqual(len(app.ordered_runs()), 2)
             await pilot.press("/", "z", "z", "z")
+            assert app.focused is not None
             self.assertEqual(app.focused.id, "run-search")
             self.assertTrue(app.query_one("#run-state").display)
             self.assertFalse(app.query_one(tui.JobPane).display)

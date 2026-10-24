@@ -5,6 +5,7 @@ extraction does not change persisted snapshots. Adapters populate these records,
 never expose arbitrary provider responses. Unknown native states stay visible.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
@@ -66,5 +67,13 @@ class RunDetails:
     completed_at: str | None = None
 
 
-def run_revision(run: Run) -> tuple:
+RunRevision = tuple[object, object, object]
+
+
+def run_revision(run: Mapping[str, object]) -> RunRevision:
+    """Compare freshness without validating or normalizing legacy snapshot values.
+
+    Cache recovery also calls this with partial v1 records. Keep missing values
+    distinct from provider defaults and leave acceptance to the cache codec.
+    """
     return (run.get("attempt", 1), run.get("status"), run.get("updatedAt"))

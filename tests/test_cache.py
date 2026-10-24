@@ -22,16 +22,20 @@ class CacheTest(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name) / "logs"
         self.cache = Cache(self.root)
-        self.run = {"databaseId": 1, "status": "completed", "updatedAt": "2026-01-01T00:00:00Z"}
+        self.run_record = {
+            "databaseId": 1,
+            "status": "completed",
+            "updatedAt": "2026-01-01T00:00:00Z",
+        }
         self.jobs = [
             {"databaseId": 10, "name": "build", "status": "completed", "conclusion": "success"}
         ]
-        self.snapshot = DashboardSnapshot([self.run], [(self.run, self.jobs)])
+        self.snapshot = DashboardSnapshot([self.run_record], [(self.run_record, self.jobs)])
         self.payload = {
             "version": 1,
             "repo": "owner/repo",
-            "runs": [self.run],
-            "details": {"1": {"revision": list(revision(self.run)), "jobs": self.jobs}},
+            "runs": [self.run_record],
+            "details": {"1": {"revision": list(revision(self.run_record)), "jobs": self.jobs}},
         }
 
     def legacy_path(self, repo, key, suffix):
@@ -104,21 +108,26 @@ class CacheTest(unittest.TestCase):
             ("runs", [{"databaseId": 1, "attempt": "1"}]),
             ("runs", [{"databaseId": 1, "attempt": True}]),
             ("runs", [{"databaseId": 1, "url": 2}]),
-            ("runs", [self.run] * 101),
+            ("runs", [self.run_record] * 101),
             ("details", []),
             ("details", {"1": True}),
             ("details", {"1": {"jobs": []}}),
-            ("details", {"1": {"revision": list(revision(self.run)), "jobs": {}}}),
-            ("details", {"1": {"revision": list(revision(self.run)), "jobs": [None]}}),
+            ("details", {"1": {"revision": list(revision(self.run_record)), "jobs": {}}}),
+            ("details", {"1": {"revision": list(revision(self.run_record)), "jobs": [None]}}),
             (
                 "details",
-                {"1": {"revision": list(revision(self.run)), "jobs": [{"databaseId": False}]}},
+                {
+                    "1": {
+                        "revision": list(revision(self.run_record)),
+                        "jobs": [{"databaseId": False}],
+                    }
+                },
             ),
             (
                 "details",
                 {
                     "1": {
-                        "revision": list(revision(self.run)),
+                        "revision": list(revision(self.run_record)),
                         "jobs": [{"databaseId": 10, "name": 3}],
                     }
                 },
@@ -151,6 +160,7 @@ class CacheTest(unittest.TestCase):
         payload["runs"][0]["completedAt"] = "2026-01-01T00:01:00+00:00"
         self.write_payload(payload)
         snapshot = self.cache.load_snapshot("owner/repo", revision)
+        assert snapshot is not None
         self.assertEqual(snapshot.runs[0]["completedAt"], "2026-01-01T00:01:00+00:00")
 
     def test_size_limit_is_checked_before_reading(self):
@@ -166,7 +176,8 @@ class CacheTest(unittest.TestCase):
         payload["details"]["2"] = True
         self.write_payload(payload)
         self.assertEqual(
-            self.cache.load_snapshot("owner/repo", revision), DashboardSnapshot([self.run], [])
+            self.cache.load_snapshot("owner/repo", revision),
+            DashboardSnapshot([self.run_record], []),
         )
 
     def test_revision_identity_is_supplied_by_the_caller(self):
@@ -176,17 +187,18 @@ class CacheTest(unittest.TestCase):
         self.cache.save_snapshot("owner/repo", self.snapshot, revision_for)
         self.assertEqual(self.cache.load_snapshot("owner/repo", revision_for), self.snapshot)
         self.assertEqual(
-            self.cache.load_snapshot("owner/repo", revision), DashboardSnapshot([self.run], [])
+            self.cache.load_snapshot("owner/repo", revision),
+            DashboardSnapshot([self.run_record], []),
         )
 
     def test_duplicate_run_ids_do_not_attach_details_to_a_stale_revision(self):
         payload = copy.deepcopy(self.payload)
-        stale = {**self.run, "attempt": 2}
-        payload["runs"] = [stale, self.run]
+        stale = {**self.run_record, "attempt": 2}
+        payload["runs"] = [stale, self.run_record]
         self.write_payload(payload)
         self.assertEqual(
             self.cache.load_snapshot("owner/repo", revision),
-            DashboardSnapshot([stale, self.run], [(self.run, self.jobs)]),
+            DashboardSnapshot([stale, self.run_record], [(self.run_record, self.jobs)]),
         )
 
     def test_atomic_replace_keeps_old_snapshot_until_new_file_is_complete(self):

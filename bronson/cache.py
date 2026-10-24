@@ -1,4 +1,9 @@
-"""Log files and the legacy dashboard-v1 startup snapshot codec."""
+"""Log files and the legacy dashboard-v1 startup snapshot codec.
+
+Storage is optional: log reads treat OSError as a cache miss and writes ignore
+OSError so live reads can continue. Rejected or unavailable snapshots are
+startup misses, never successful empty provider responses.
+"""
 
 import hashlib
 import json

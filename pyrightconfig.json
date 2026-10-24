@@ -1,0 +1,7 @@
+{
+  "include": ["bronson", "tests"],
+  "exclude": ["build", "dist"],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "standard",
+  "strict": ["bronson/models.py", "bronson/providers/github.py", "tests/test_github.py"]
+}
