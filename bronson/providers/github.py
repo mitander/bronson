@@ -131,14 +131,15 @@ class GitHubProvider:
             [
                 "gh",
                 "api",
-                "--allow-escape-sequences",
                 f"repos/{self.repository.path}/actions/jobs/{job_id}/logs",
             ],
             timeout=60,
             cancelled=self.cancelled,
         )
         if result.returncode:
-            raise ValueError("GitHub log download failed")
+            raise ValueError(
+                f"GitHub log download failed (gh exited with code {result.returncode})"
+            )
         return result.stdout
 
     def mutate(self, run_id: int, action: Mutation) -> None:

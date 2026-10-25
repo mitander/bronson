@@ -177,10 +177,11 @@ class GitHubTests(unittest.TestCase):
             self.assertEqual(self.provider.job_log(10), "raw trace\n")
         self.assertEqual(
             execute.call_args.args[0],
-            ["gh", "api", "--allow-escape-sequences", "repos/owner/repo/actions/jobs/10/logs"],
+            ["gh", "api", "repos/owner/repo/actions/jobs/10/logs"],
         )
         self.assertEqual(execute.call_args.kwargs["timeout"], 60)
         failure = subprocess.CompletedProcess([], 1, "", "untrusted diagnostics")
         with patch("bronson.providers.github.run_process", return_value=failure):
-            with self.assertRaisesRegex(ValueError, "GitHub log download failed"):
+            with self.assertRaisesRegex(ValueError, r"gh exited with code 1") as raised:
                 self.provider.job_log(10)
+        self.assertNotIn("untrusted diagnostics", str(raised.exception))
