@@ -36,6 +36,7 @@ import threading
 import time
 import webbrowser
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -73,7 +74,7 @@ from bronson.themes import (
 # startup and shared presentation
 # --------------------------------------------------------------------------
 
-VERSION = "0.5.0"
+VERSION = version("bronson")
 PANE_MIN_WIDTH = 120
 PANE_MIN_HEIGHT = 22
 POLL_SECONDS = 20

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install contributor tools
+        run: |
+          python -m pip install -e . ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
+          npm install --global prettier@3.9.6 pyright@1.1.411
+          curl --fail --silent --show-error --location \
+            https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz \
+            --output "$RUNNER_TEMP/taplo.gz"
+          echo "8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156  $RUNNER_TEMP/taplo.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/bin"
+          gzip --decompress --stdout "$RUNNER_TEMP/taplo.gz" > "$RUNNER_TEMP/bin/taplo"
+          chmod +x "$RUNNER_TEMP/bin/taplo"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Run local gate
+        run: ./scripts/ci-local.sh
+      - name: Check installed package outside the checkout
+        run: |
+          python -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/wheels" .
+          python -m venv "$RUNNER_TEMP/installed"
+          "$RUNNER_TEMP/installed/bin/python" -m pip install "$RUNNER_TEMP"/wheels/bronson-*.whl
+          cd "$RUNNER_TEMP"
+          unset PYTHONPATH
+          installed/bin/bronson --help
+          installed/bin/python -m bronson --help
