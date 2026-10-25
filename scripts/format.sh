@@ -5,11 +5,11 @@ cd "$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 
 case "${1:-write}" in
 write)
-  prettier_mode=--write
+  dprint_mode=fmt
   check_mode=
   ;;
 check | --check)
-  prettier_mode=--check
+  dprint_mode=check
   check_mode=--check
   ;;
 *)
@@ -18,12 +18,12 @@ check | --check)
   ;;
 esac
 
-prettier_version=$(prettier --version 2>/dev/null) || {
-  printf '%s\n' "format: Prettier 3.9.6 is required" >&2
+dprint_version=$(dprint --version 2>/dev/null) || {
+  printf '%s\n' "format: dprint 0.60.1 is required" >&2
   exit 1
 }
-if [ "$prettier_version" != "3.9.6" ]; then
-  printf '%s\n' "format: Prettier 3.9.6 is required; found $prettier_version" >&2
+if [ "$dprint_version" != "dprint 0.60.1" ]; then
+  printf '%s\n' "format: dprint 0.60.1 is required; found $dprint_version" >&2
   exit 1
 fi
 ruff check --no-cache --config ruff.toml --show-settings bronson/cli.py >/dev/null
@@ -32,7 +32,7 @@ shfmt_version=$(shfmt --version)
 shellcheck --version | grep -qx 'version: 0.11.0'
 command -v taplo >/dev/null
 
-prettier "$prettier_mode" --ignore-path .gitignore '**/*.{md,json,jsonc,yaml,yml}'
+dprint "$dprint_mode" --config dprint.json
 if [ -n "$check_mode" ]; then
   ruff check --no-cache --config ruff.toml --select I .
 else

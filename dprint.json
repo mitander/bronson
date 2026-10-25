@@ -1,0 +1,14 @@
+{
+  "lineWidth": 100,
+  "indentWidth": 2,
+  "newLineKind": "lf",
+  "markdown": {
+    "textWrap": "always"
+  },
+  "includes": ["**/*.{md,json,jsonc,yaml,yml}"],
+  "plugins": [
+    "https://plugins.dprint.dev/markdown-0.22.0.wasm@0155dfc4789350a145bc0970a7110bc94f342e365c0a9905cd965c032ecdf2c5",
+    "https://plugins.dprint.dev/json-0.21.0.wasm@188a08916eeccf2414e06c8b51d8f44d3695f055a0d63cef39eace0a11e247bc",
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm@40a2fdda7040317eb1b23520f3a00769a5571eedb049c4ca9175c1b9eeba01ae"
+  ]
+}

@@ -34,7 +34,14 @@ jobs:
       - name: Install contributor tools
         run: |
           python -m pip install -e . ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
-          npm install --global prettier@3.9.6 pyright@1.1.411
+          npm install --global pyright@1.1.411
+          curl --fail --silent --show-error --location \
+            https://github.com/dprint/dprint/releases/download/0.60.1/dprint-x86_64-unknown-linux-gnu.zip \
+            --output "$RUNNER_TEMP/dprint.zip"
+          echo "5612c587a34dfbbda37162d46755f9e8c6a4efba7950920b2a308ea84ce0886a  $RUNNER_TEMP/dprint.zip" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/bin"
+          unzip -p "$RUNNER_TEMP/dprint.zip" dprint > "$RUNNER_TEMP/bin/dprint"
+          chmod +x "$RUNNER_TEMP/bin/dprint"
           curl --fail --silent --show-error --location \
             https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz \
             --output "$RUNNER_TEMP/taplo.gz"

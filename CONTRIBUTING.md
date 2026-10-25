@@ -11,12 +11,14 @@ Use Python 3.10 or newer. From the repository root, create and activate a virtua
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -e . ruff==0.16.6 shfmt-py==4.2.0 shellcheck-py==0.11.0.1
-npm install --global prettier@3.9.6 pyright@1.1.411
+npm install --global pyright@1.1.411
 ```
 
-Node.js/npm run contributor tools, not Bronson. TOML formatting also needs
+Install [dprint 0.60.1](https://github.com/dprint/dprint/releases/tag/0.60.1) for Markdown, JSON and
+YAML formatting. TOML formatting also needs
 [Taplo 0.10.0](https://github.com/tamasfe/taplo/releases), available as a prebuilt binary or system
-package. The Python shfmt package supplies shfmt 3.14.1. No Rust compiler is needed.
+package. Node.js/npm run Pyright, not Bronson. The Python shfmt package supplies shfmt 3.14.1. No
+Rust compiler is needed.
 
 Authenticate with `gh` or `glab` for live use. Deterministic tests need neither CLI nor credentials.
 You can keep the virtual environment outside the checkout instead, but use the same interpreter for
@@ -34,8 +36,10 @@ for pushes and pull requests. It also builds a wheel and checks both entry point
 installation outside the checkout. CI needs no provider credentials and makes no live workflow
 requests.
 
-Checks do not install missing tools. The gate uses `python3` by default. Set
-`PYTHON=/path/to/venv/bin/python` to select another environment without activating it.
+Checks do not install missing tool executables. On first use, dprint downloads and caches the
+version- and checksum-pinned plugins in [dprint.json](dprint.json), so that run needs network
+access. The gate uses `python3` by default. Set `PYTHON=/path/to/venv/bin/python` to select another
+environment without activating it.
 
 For focused checks:
 
@@ -49,9 +53,9 @@ python -m unittest discover -s tests -p 'test_gitlab.py'
 
 [ruff.toml](ruff.toml) owns Python formatting and lint rules. Keep Python 3.10 syntax, four-space
 indentation, double quotes and a 100-column target. Markdown and structured data use
-[Prettier](.prettierrc.json) with wrapped prose at 100 columns. Shell scripts use shfmt and
-ShellCheck. The formatter sorts Python imports but does not apply other lint fixes. Review lint
-repairs separately and do not use unsafe fixes or broad suppressions.
+[dprint](dprint.json) with wrapped prose at 100 columns. Shell scripts use shfmt and ShellCheck. The
+formatter sorts Python imports but does not apply other lint fixes. Review lint repairs separately
+and do not use unsafe fixes or broad suppressions.
 
 [pyrightconfig.json](pyrightconfig.json) checks application code and tests in standard mode, with
 strict checking for models, the GitHub adapter and its tests. The remaining modules are checked, but
