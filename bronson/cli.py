@@ -143,7 +143,9 @@ def update_table(table: DataTable, rows: list[tuple[str, list[Text]]]) -> None:
         columns = list(table.columns)
         for key, cells in rows:
             for column_key, old, new in zip(columns, table.get_row(key), cells, strict=False):
-                if old != new:
+                # Rich equality compares content and spans, but not the base style.
+                # A palette switch must repaint otherwise unchanged status icons.
+                if old != new or (isinstance(old, Text) and old.style != new.style):
                     table.update_cell(key, column_key, new, update_width=True)
 
 
@@ -1026,7 +1028,11 @@ class JobDetailScreen(ModalScreen):
                 [
                     (
                         "error",
-                        [Text("✗", style="red"), Text(f"Provider request failed: {error}"), dash()],
+                        [
+                            Text("✗", style=self.app.color("error", "red")),
+                            Text(f"Provider request failed: {error}"),
+                            dash(),
+                        ],
                     )
                 ],
             )

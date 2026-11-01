@@ -740,6 +740,34 @@ class DashboardTest(unittest.IsolatedAsyncioTestCase):
                         widget.styles.background, app.screen_stack[0].styles.background
                     )
 
+    async def test_theme_changes_repaint_provider_error_icon(self):
+        palettes = {
+            "flume-first": {"error": "#ee7583"},
+            "flume-second": {"error": "#bc3945"},
+        }
+        app = tui.ActionsDashboard("owner/repo", self.cache, theme_name="flume-first")
+        for name in palettes:
+            app.register_theme(Theme(name=name, primary="#73a6b6"))
+        with patch.object(tui, "theme_roles", side_effect=lambda name: palettes.get(name)):
+            async with app.run_test() as pilot:
+                await self.settle(app, pilot)
+                app.details.pop(1, None)
+                app.detail_errors[1] = "offline"
+                with patch.object(app, "request_detail"):
+                    screen = tui.JobDetailScreen(app.repo, self.runs[0])
+                    await app.push_screen(screen)
+                    await pilot.pause()
+                    table = screen.query_one("#jobs", DataTable)
+                    for name, expected in palettes.items():
+                        app.select_theme(name)
+                        await pilot.pause()
+                        icon = table.get_row("error")[0]
+                        self.assertEqual(icon.plain, "✗")
+                        self.assertEqual(str(icon.style), expected["error"])
+                    app._roles = {}
+                    screen.apply_detail(None, "offline")
+                    self.assertEqual(str(table.get_row("error")[0].style), "red")
+
     async def test_theme_changes_repaint_cached_log_errors(self):
         self.jobs = [job(10, "completed", "failure")]
         palettes = {
