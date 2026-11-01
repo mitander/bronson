@@ -141,6 +141,8 @@ class ThemeTests(ThemeFixture):
                         "text",
                         "fg",
                         "syntax_comment",
+                        "muted",
+                        "magenta",
                         "border",
                         "border_variant",
                         "accent",
@@ -161,6 +163,10 @@ class ThemeTests(ThemeFixture):
                 "bg": "#232136",
                 "text": "#eeeeee",
                 "error": "#ee7583",
+                "muted": "#a6a2bb",
+                "magenta": "#b99add",
+                "accent": "#7dacbb",
+                "on_accent": "#232136",
             },
         }
         path = directory / "flume-dusk.json"
@@ -173,6 +179,12 @@ class ThemeTests(ThemeFixture):
         roles = themes.theme_roles("flume-dusk")
         assert roles is not None
         self.assertEqual(roles["error"], "#ee7583")
+        self.assertEqual(roles["text_muted"], "#a6a2bb")
+        self.assertEqual(roles["accent_secondary"], "#b99add")
+        self.assertEqual(loaded[0].secondary, "#b99add")
+        self.assertEqual(loaded[0].accent, "#7dacbb")
+        self.assertEqual(loaded[0].variables["input-cursor-background"], "#7dacbb")
+        self.assertEqual(loaded[0].variables["input-cursor-foreground"], "#232136")
         self.assertEqual(themes.active_flume_theme(), "flume-dusk")
 
         data["colors"]["bg"] = "#ded4d1"
@@ -235,6 +247,31 @@ class ThemeTests(ThemeFixture):
 
 
 class LiveThemeTests(ThemeFixture, unittest.IsolatedAsyncioTestCase):
+    async def test_native_chrome_uses_context_cursor_and_quiet_focus_roles(self):
+        from textual.color import Color
+
+        app = ActionsDashboard("owner/repo", Cache(self.root / "cache"))
+        with patch.object(app, "poll"):
+            async with app.run_test() as pilot:
+                table = app.query_one("#runs")
+                for schema, canvas in (("dusk", "#232136"), ("opal", "#ded4d1")):
+                    app.select_theme("flume-" + schema)
+                    table.focus()
+                    await pilot.pause()
+                    title = app.query_one("#repo-title")
+                    self.assertEqual(title.styles.color, Color.parse(canvas))
+                    cursor = table.get_component_rich_style("datatable--cursor")
+                    assert cursor.bgcolor is not None
+                    self.assertEqual(cursor.bgcolor.get_truecolor().hex, canvas)
+                    field = app.query_one("#run-search")
+                    field.display = True
+                    field.focus()
+                    await pilot.pause()
+                    cursor = field.get_component_rich_style("input--cursor")
+                    assert cursor.bgcolor is not None and cursor.color is not None
+                    self.assertEqual(cursor.bgcolor.get_truecolor().hex, "#73a6b6")
+                    self.assertEqual(cursor.color.get_truecolor().hex, canvas)
+
     async def test_follows_atomic_current_swap(self):
         themes.load_flume_themes()
         changes = themes.watch_flume_theme_changes()

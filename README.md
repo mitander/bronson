@@ -91,7 +91,9 @@ self-hosted version still needs a read-only smoke test on that instance.
 ## Themes
 
 Press `t` to choose a theme, or start with `bronson --theme textual-dark`. Built-in themes work
-without additional configuration.
+without additional configuration. Flume themes use purple for repository and branch context, the
+action accent for controls and focused input cursors, and muted ink for secondary text. Focus rows
+retain their text on the palette's quiet active-element surface.
 
 <details>
 <summary>Use Flume palettes and follow theme changes</summary>

@@ -1128,7 +1128,7 @@ class ActionsDashboard(App):
     DataTable > .datatable--even-row { background: transparent; }
     DataTable:focus { background-tint: transparent; }
     #dashboard-header { height: 1; padding: 0 1; background: $background; }
-    #repo-title { width: 1fr; text-style: bold; }
+    #repo-title { width: 1fr; text-style: bold; color: $secondary; }
     #dashboard-status { width: auto; color: $text-muted; }
     #workspace { height: 1fr; }
     #runs-pane { width: 45%; border: round $border-blurred; padding: 0 1;
@@ -1154,8 +1154,8 @@ class ActionsDashboard(App):
     #run-search { height: 1; border: none; padding: 0; margin: 0; background: transparent; }
     #run-search:focus { border: none; background: $panel; background-tint: transparent; }
     #run-search > .input--placeholder { color: $text-muted; }
-    DataTable:focus > .datatable--cursor { background: $primary 30%; color: $text; text-style: bold; }
-    DataTable > .datatable--cursor { background: $primary 12%; color: $text; }
+    DataTable:focus > .datatable--cursor { background: $block-cursor-background; color: $text; text-style: bold; }
+    DataTable > .datatable--cursor { background: $block-cursor-blurred-background; color: $text; }
     DataTable > .datatable--header { background: $background; color: $text-muted; }
     .quiet-footer { dock: bottom; height: 1; padding: 0 1; color: $text-muted; background: $background; }
     """
